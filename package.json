@@ -10,7 +10,9 @@
     "dev:web": "vite",
     "build": "tsc --noEmit && vite build",
     "start": "NODE_ENV=production tsx server/index.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check": "pnpm test && pnpm build",
+    "prepare": "git config core.hooksPath .githooks 2>/dev/null || true"
   },
   "engines": {
     "node": ">=22.5"

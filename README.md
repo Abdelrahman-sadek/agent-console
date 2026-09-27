@@ -7,7 +7,7 @@
 Chat with agents, approve risky actions before they happen, and review every run with its full timeline, tool audit and cost.<br/>
 A web console for **[agents-framework](https://github.com/agent-farmework/agents-framework)**.
 
-[![CI](https://github.com/Abdelrahman-sadek/agent-console/actions/workflows/ci.yml/badge.svg)](https://github.com/Abdelrahman-sadek/agent-console/actions/workflows/ci.yml)
+![Checks](https://img.shields.io/badge/checks-pre--push-4f46e5?logo=git&logoColor=white)
 ![Node](https://img.shields.io/badge/node-%E2%89%A522.5-339933?logo=node.js&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=black)
@@ -180,7 +180,7 @@ agent-console/
 | Agent runtime | [agents-framework](https://github.com/agent-farmework/agents-framework): tools, approvals, guardrails, RAG, limits |
 | Server | Node 22, [Hono](https://hono.dev), Server-Sent Events, SQLite (`node:sqlite`) |
 | UI | React 19, Vite, Tailwind CSS 4, [Lucide](https://lucide.dev) icons |
-| Quality | Strict TypeScript, Vitest API tests, GitHub Actions CI, Playwright walkthrough |
+| Quality | Strict TypeScript, Vitest API tests, pre-push checks, CI workflow, Playwright walkthrough |
 
 ## 🔒 Security
 
@@ -227,7 +227,7 @@ Run `pnpm build`, then `pnpm start` (production mode) with a strong `ADMIN_PASSW
 
 - [x] Agents, live chat timeline, approvals inbox, run history and audit
 - [x] Guardrails, citations, light/dark and phone layouts
-- [x] CI on every push
+- [x] Checks on every push (pre-push hook), plus a CI workflow for GitHub Actions
 - [ ] Real model providers (Claude, OpenAI, local) selected by environment variable
 - [ ] Deployment guide with HTTPS
 - [ ] Multiple users and roles
@@ -235,7 +235,9 @@ Run `pnpm build`, then `pnpm start` (production mode) with a strong `ADMIN_PASSW
 
 ## 🤝 Contributing
 
-Issues and pull requests are welcome. Before opening a PR, run `pnpm test && pnpm build`.
+Issues and pull requests are welcome. `pnpm install` sets up a **pre-push hook** that runs `pnpm check` (tests, typecheck and build) before every push; run it yourself any time with `pnpm check`. Skip it once with `git push --no-verify`.
+
+The same checks are in `.github/workflows/ci.yml` and run on GitHub Actions wherever Actions is enabled.
 
 <div align="center">
 <br/>
