@@ -4,8 +4,7 @@ import type { Hono } from "hono";
 import { z } from "zod";
 import { CATALOG } from "./catalog.js";
 import type { AgentRow, Database } from "./db.js";
-import type { AgentFactory } from "./factory.js";
-import type { ProviderInfo } from "./providers.js";
+import type { LiveProviders } from "./app.js";
 import { AgentSpec, blankSpec, toolNameOf, type ApprovalSpec } from "./spec.js";
 
 const MAX_UPLOAD_BYTES = 5_000_000;
@@ -48,11 +47,11 @@ async function extractText(name: string, bytes: Uint8Array): Promise<string> {
   throw new Error("Supported files: .pdf, .txt, .md, .html, .csv, .json");
 }
 
-export function registerBuilder(app: Hono, deps: { db: Database; factory: AgentFactory; providerInfo: ProviderInfo[] }) {
-  const { db, factory, providerInfo } = deps;
-  const configured = new Set(providerInfo.filter((p) => p.configured).map((p) => p.id));
+export function registerBuilder(app: Hono, deps: { db: Database; live: LiveProviders }) {
+  const { db, live } = deps;
+  const isConfigured = (id: string) => live.providerInfo.some((p) => p.id === id && p.configured);
   const defaultModel = (): { providerId: string; modelId: string } => {
-    const real = providerInfo.find((p) => p.configured && p.id !== "demo" && p.models.length > 0);
+    const real = live.providerInfo.find((p) => p.configured && p.id !== "demo" && p.models.length > 0);
     return real ? { providerId: real.id, modelId: real.models[0]?.id ?? "" } : { providerId: "demo", modelId: "demo" };
   };
   const detail = (row: AgentRow) => ({
@@ -65,7 +64,7 @@ export function registerBuilder(app: Hono, deps: { db: Database; factory: AgentF
   });
   const load = (id: string) => db.agents.get(id);
 
-  app.get("/api/builder/models", (c) => c.json(providerInfo));
+  app.get("/api/builder/models", (c) => c.json(live.providerInfo));
   app.get("/api/builder/catalog", (c) => c.json(CATALOG));
 
   app.get("/api/builder/agents", (c) =>
@@ -102,9 +101,9 @@ export function registerBuilder(app: Hono, deps: { db: Database; factory: AgentF
     const row = load(c.req.param("id"));
     if (row === undefined) return c.json({ error: "Agent not found." }, 404);
     const note = z.object({ note: z.string().max(200).default("") }).parse(await c.req.json().catch(() => ({}))).note;
-    if (!configured.has(row.draft.model.providerId)) return c.json({ error: `The model provider "${row.draft.model.providerId}" is not configured on the server.` }, 400);
+    if (!isConfigured(row.draft.model.providerId)) return c.json({ error: `The model provider "${row.draft.model.providerId}" is not configured. Add it in Settings.` }, 400);
     try {
-      await factory.build(row.id, "draft"); // catches anything that would fail at run time
+      await live.factory.build(row.id, "draft"); // catches anything that would fail at run time
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : "The agent could not be built." }, 400);
     }
@@ -154,7 +153,7 @@ export function registerBuilder(app: Hono, deps: { db: Database; factory: AgentF
     if (text.length === 0) return c.json({ error: "No text found in that file (scanned PDFs are not supported yet)." }, 400);
     if (text.length > MAX_DOC_CHARS) return c.json({ error: `Documents up to ${MAX_DOC_CHARS.toLocaleString()} characters.` }, 400);
     db.agents.addDoc(row.id, { id: `doc-${randomBytes(5).toString("hex")}`, title: title.slice(0, 120), text });
-    factory.invalidateKnowledge(row.id);
+    live.factory.invalidateKnowledge(row.id);
     return c.json(detail(load(row.id) as AgentRow), 201);
   });
 
@@ -162,7 +161,7 @@ export function registerBuilder(app: Hono, deps: { db: Database; factory: AgentF
     const row = load(c.req.param("id"));
     if (row === undefined) return c.json({ error: "Agent not found." }, 404);
     if (!db.agents.removeDoc(row.id, c.req.param("docId"))) return c.json({ error: "Document not found." }, 404);
-    factory.invalidateKnowledge(row.id);
+    live.factory.invalidateKnowledge(row.id);
     return c.json(detail(load(row.id) as AgentRow));
   });
 }

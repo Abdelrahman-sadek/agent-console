@@ -29,6 +29,9 @@ importers:
       '@agent-farmework/tools':
         specifier: link:./vendor/agents-framework/packages/tools
         version: link:vendor/agents-framework/packages/tools
+      '@anthropic-ai/sdk':
+        specifier: link:./vendor/agents-framework/packages/provider-anthropic/node_modules/@anthropic-ai/sdk
+        version: link:vendor/agents-framework/packages/provider-anthropic/node_modules/@anthropic-ai/sdk
       '@hono/node-server':
         specifier: ^1.14.0
         version: 1.19.17(hono@4.13.9)

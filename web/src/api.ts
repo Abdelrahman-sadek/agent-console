@@ -109,7 +109,16 @@ export interface AgentSpec {
 export interface ProviderInfo {
   id: string;
   label: string;
+  kind: "anthropic" | "openai-compatible" | "demo";
   configured: boolean;
+  source: "console" | "server" | null;
+  keyHint: string | null;
+  baseURL: string | null;
+  custom: boolean;
+  needsKey: boolean;
+  needsBaseURL: boolean;
+  defaultBaseURL: string | null;
+  keyUrl: string | null;
   setup: string;
   models: { id: string; label: string }[];
   customModel: boolean;

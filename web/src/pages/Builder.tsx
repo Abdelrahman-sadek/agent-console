@@ -309,20 +309,24 @@ export function BuilderPage({ id, onPublished }: { id: string; onPublished: () =
             </Field>
           </Section>
 
-          <Section icon={<Brain size={18} />} title="Model" subtitle="Which AI model thinks for this agent. Keys live only on the server.">
+          <Section icon={<Brain size={18} />} title="Model" subtitle="Which AI model thinks for this agent. Connect providers and keys in Settings.">
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Provider" id="f-prov" hint={provider && !provider.configured ? `Not configured: ${provider.setup}` : undefined}>
+              <Field label="Provider" id="f-prov" hint={<a href="#/settings" className="text-brand hover:underline">Manage providers & keys →</a>}>
                 <select id="f-prov" className={inputCls} value={spec.model.providerId}
                   onChange={(e) => {
                     const p = models.find((m) => m.id === e.target.value);
                     set({ ...spec, model: { providerId: e.target.value, modelId: p?.models[0]?.id ?? (e.target.value === spec.model.providerId ? spec.model.modelId : "") } });
                   }}>
-                  {models.map((m) => <option key={m.id} value={m.id}>{m.label}{m.configured ? "" : " (not configured)"}</option>)}
+                  <optgroup label="Connected">{models.filter((m) => m.configured).map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</optgroup>
+                  <optgroup label="Not connected yet">{models.filter((m) => !m.configured).map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}</optgroup>
                 </select>
               </Field>
               <Field label="Model" id="f-model" error={err("model.modelId")}>
                 {provider?.customModel ? (
-                  <input id="f-model" className={cx(inputCls, "font-mono")} value={spec.model.modelId} placeholder={provider.modelPlaceholder} onChange={(e) => set({ ...spec, model: { ...spec.model, modelId: e.target.value } })} />
+                  <>
+                    <input id="f-model" list="f-model-list" className={cx(inputCls, "font-mono")} value={spec.model.modelId} placeholder={provider.modelPlaceholder} onChange={(e) => set({ ...spec, model: { ...spec.model, modelId: e.target.value } })} />
+                    <datalist id="f-model-list">{provider.models.map((m) => <option key={m.id} value={m.id} />)}</datalist>
+                  </>
                 ) : (
                   <select id="f-model" className={inputCls} value={spec.model.modelId} onChange={(e) => set({ ...spec, model: { ...spec.model, modelId: e.target.value } })}>
                     {provider?.models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
@@ -330,7 +334,7 @@ export function BuilderPage({ id, onPublished }: { id: string; onPublished: () =
                 )}
               </Field>
             </div>
-            {provider && !provider.configured && <p className="rounded-xl bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">You can save and edit this agent, but testing and publishing need the provider configured on the server.</p>}
+            {provider && !provider.configured && <p className="rounded-xl bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">{provider.label} is not connected yet. You can keep editing; to test and publish, <a href="#/settings" className="font-medium underline">add its key in Settings</a>.</p>}
           </Section>
 
           <Section icon={<Wrench size={18} />} title="Tools" subtitle="What the agent can do. It can use nothing else. Add approval rules for anything risky.">

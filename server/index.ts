@@ -3,6 +3,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { readFileSync } from "node:fs";
 import { createApp } from "./app.js";
 import { openDatabase } from "./db.js";
+import { loadMasterKey } from "./secrets.js";
 
 const production = process.env.NODE_ENV === "production";
 const adminPassword = process.env.ADMIN_PASSWORD ?? (production ? undefined : "demo");
@@ -11,8 +12,9 @@ if (adminPassword === undefined || (production && adminPassword.length < 8)) {
   process.exit(1);
 }
 
-const db = await openDatabase(process.env.DATABASE_PATH ?? "data/console.db");
-const app = await createApp({ db, adminPassword, secureCookies: production && process.env.INSECURE_COOKIES !== "1" });
+const databasePath = process.env.DATABASE_PATH ?? "data/console.db";
+const db = await openDatabase(databasePath);
+const app = await createApp({ db, adminPassword, secureCookies: production && process.env.INSECURE_COOKIES !== "1", masterKey: loadMasterKey(databasePath) });
 
 if (production) {
   // The built UI; any non-API path falls back to index.html for client-side routing.

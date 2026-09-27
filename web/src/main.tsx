@@ -1,4 +1,4 @@
-import { Bot, Hand, History, LogOut, MessageSquare, Moon, Sun, Zap } from "lucide-react";
+import { Bot, Hand, History, KeyRound, LogOut, MessageSquare, Moon, Sun, Zap } from "lucide-react";
 import { StrictMode, useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api, post, type AgentInfo, type BuilderListItem, type ProviderInfo, type RunSummary } from "./api";
@@ -8,6 +8,7 @@ import { BuilderPage } from "./pages/Builder";
 import { ChatPage } from "./pages/Chat";
 import { LoginPage } from "./pages/Login";
 import { RunDetailPage, RunsPage } from "./pages/Runs";
+import { SettingsPage } from "./pages/Settings";
 import "./styles.css";
 import { cx } from "./ui";
 
@@ -82,6 +83,7 @@ function App() {
     { key: "chat", label: "Chat", icon: <MessageSquare size={18} />, href: `#/chat/${agents[0]?.id ?? "support"}` },
     { key: "approvals", label: "Approvals", icon: <Hand size={18} />, href: "#/approvals", badge: waiting },
     { key: "runs", label: "Runs", icon: <History size={18} />, href: "#/runs" },
+    { key: "settings", label: "Settings", icon: <KeyRound size={18} />, href: "#/settings" },
   ];
 
   // Runs and approvals may belong to agents that are not published (builder test runs).
@@ -89,7 +91,9 @@ function App() {
   const liveModels = providers.filter((p) => p.configured && p.id !== "demo").map((p) => p.label.replace(/ \(.*\)$/, ""));
 
   let page;
-  if (section === "build" && id) page = <BuilderPage key={id} id={id} onPublished={reloadAgents} />;
+  const reloadProviders = () => api<{ providers: ProviderInfo[] }>("/api/settings").then((s) => setProviders(s.providers)).catch(() => {});
+  if (section === "settings") page = <SettingsPage onChange={() => void reloadProviders()} />;
+  else if (section === "build" && id) page = <BuilderPage key={id} id={id} onPublished={reloadAgents} />;
   else if (section === "chat") page = <ChatPage agents={agents} agentId={id ?? agents[0]?.id ?? "support"} onChange={refreshWaiting} />;
   else if (section === "approvals") page = <ApprovalsPage agents={named} onChange={refreshWaiting} />;
   else if (section === "runs" && id) page = <RunDetailPage runId={id} agents={named} />;
@@ -117,9 +121,9 @@ function App() {
           ))}
         </nav>
         <div className="flex items-center gap-1 md:mt-auto md:flex-col md:items-stretch">
-          <div className="hidden rounded-xl bg-panel-2 px-3 py-2.5 text-xs text-muted md:block">
-            <div className="font-medium text-ink">Models</div>{liveModels.length > 0 ? liveModels.join(" · ") : "Demo only · add an API key on the server"}
-          </div>
+          <a href="#/settings" className="hidden rounded-xl bg-panel-2 px-3 py-2.5 text-xs text-muted hover:text-ink md:block">
+            <div className="font-medium text-ink">Models</div>{liveModels.length > 0 ? liveModels.join(" · ") : "Demo only · connect a provider →"}
+          </a>
           <button onClick={toggleTheme} className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm text-muted hover:bg-panel-2 hover:text-ink" aria-label="Toggle theme">
             {dark ? <Sun size={18} /> : <Moon size={18} />}<span className="hidden md:inline">{dark ? "Light mode" : "Dark mode"}</span>
           </button>

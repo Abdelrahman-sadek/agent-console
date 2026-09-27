@@ -10,7 +10,9 @@ import { createAgents, operator } from "./agents.js";
 import { customAgentInfo, registerBuilder } from "./builder.js";
 import type { Database } from "./db.js";
 import { AgentFactory } from "./factory.js";
-import { loadProviders } from "./providers.js";
+import { loadProviders, type ProviderInfo } from "./providers.js";
+import { ProviderSecrets, loadMasterKey } from "./secrets.js";
+import { registerProviderSettings } from "./settings.js";
 
 export interface AppOptions {
   db: Database;
@@ -18,6 +20,14 @@ export interface AppOptions {
   secureCookies: boolean;
   /** Where provider keys are read from (defaults to process.env). */
   env?: Readonly<Record<string, string | undefined>>;
+  /** Encrypts provider keys saved from the browser (see loadMasterKey). A random key is used when omitted. */
+  masterKey?: Buffer;
+}
+
+/** Providers and the factory built from them; replaced whenever provider settings change. */
+export interface LiveProviders {
+  factory: AgentFactory;
+  providerInfo: ProviderInfo[];
 }
 
 const SESSION_COOKIE = "ac_session";
@@ -62,16 +72,22 @@ export function summarize(state: AgentState) {
 export async function createApp(options: AppOptions) {
   const { db } = options;
   const { agents, info } = await createAgents(db);
-  const { providers, info: providerInfo } = loadProviders(options.env);
-  const factory = new AgentFactory(db, new Set(providers.map((p) => p.id)), providers);
+  const env = options.env ?? process.env;
+  const secrets = new ProviderSecrets(db.db, options.masterKey ?? loadMasterKey(":memory:", {}));
+  const build = (): LiveProviders => {
+    const { providers, info } = loadProviders(env, secrets.all());
+    return { factory: new AgentFactory(db, new Set(providers.map((p) => p.id)), providers), providerInfo: info };
+  };
+  const live: LiveProviders = build();
+  const reload = () => Object.assign(live, build());
   /** Built-in demo agents, then agents built in the browser (published version, or the draft for test chat). */
   const resolveAgent = async (agentId: string, draft = false): Promise<Agent<unknown> | undefined> => {
     const builtin = agents.get(agentId);
     if (builtin !== undefined) return builtin;
     const row = db.agents.get(agentId);
     if (row === undefined) return undefined;
-    if (draft) return factory.build(agentId, "draft");
-    return row.currentVersion === null ? undefined : factory.build(agentId, row.currentVersion);
+    if (draft) return live.factory.build(agentId, "draft");
+    return row.currentVersion === null ? undefined : live.factory.build(agentId, row.currentVersion);
   };
   const sessions = new Map<string, number>();
   const loginAttempts = new Map<string, { count: number; resetAt: number }>();
@@ -123,9 +139,10 @@ export async function createApp(options: AppOptions) {
     const custom = db.agents.list().filter((r) => r.currentVersion !== null).map((r) => customAgentInfo(r, db.agents.version(r.id, r.currentVersion as number)?.spec ?? r.draft));
     return c.json([...info.map((a) => ({ ...a, kind: "builtin" })), ...custom]);
   });
-  app.get("/api/settings", (c) => c.json({ providers: providerInfo, database: "SQLite", operator }));
+  app.get("/api/settings", (c) => c.json({ providers: live.providerInfo, database: "SQLite", operator }));
 
-  registerBuilder(app, { db, factory, providerInfo });
+  registerBuilder(app, { db, live });
+  registerProviderSettings(app, { secrets, env, live, reload });
 
   app.post("/api/agents/:agentId/runs", async (c) => {
     const body = z.object({ input: z.string().trim().min(1).max(2_000), draft: z.boolean().optional() }).safeParse(await c.req.json().catch(() => ({})));
@@ -209,7 +226,7 @@ export async function createApp(options: AppOptions) {
     if (!body.success) return c.json({ error: "Invalid decision." }, 400);
     const state = await db.runs.load(runId);
     // Resume on exactly the agent version the run started with.
-    const agent = state === undefined ? undefined : (agents.get(state.agentId) ?? (await factory.forRun(state.agentId, state.agentVersion).catch(() => undefined)));
+    const agent = state === undefined ? undefined : (agents.get(state.agentId) ?? (await live.factory.forRun(state.agentId, state.agentVersion).catch(() => undefined)));
     if (state === undefined || agent === undefined) return c.json({ error: "Run not found." }, 404);
     try {
       const result = await agent.resume({

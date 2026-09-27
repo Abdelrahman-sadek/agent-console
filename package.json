@@ -25,6 +25,7 @@
     "@agent-farmework/provider-anthropic": "link:./vendor/agents-framework/packages/provider-anthropic",
     "@agent-farmework/security": "link:./vendor/agents-framework/packages/security",
     "@agent-farmework/tools": "link:./vendor/agents-framework/packages/tools",
+    "@anthropic-ai/sdk": "link:./vendor/agents-framework/packages/provider-anthropic/node_modules/@anthropic-ai/sdk",
     "@hono/node-server": "^1.14.0",
     "hono": "^4.7.0",
     "tsx": "^4.19.0",

@@ -32,6 +32,12 @@ loop. Anything that restarts a container is explained first and left to the owne
 | 6 | ✅ Done | tests + walkthrough |
 | 7 | ✅ Deployed | VPS report 2026-09-27: container healthy, builder API 200, public site 200; keys added with `deploy/set-key.sh` when wanted |
 
+## Stage 8: providers and keys from the browser
+
+| Done when | Status |
+| --- | --- |
+| Settings page: presets for 10 providers + custom OpenAI-compatible; keys encrypted at rest (AES-256-GCM), write-only, last 4 shown; applied without restart; Test lists models for builder suggestions | ✅ `test/settings.test.ts` (key not in DB file, real call uses saved key, wrong key rejected, custom provider, survives restart) + Playwright walkthrough + container check |
+
 ## Spec (what an agent is)
 
 ```jsonc

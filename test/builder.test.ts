@@ -67,7 +67,7 @@ describe("stage 1: model providers", () => {
   test("lists every provider and whether it is configured (no keys ever returned)", async () => {
     const { call } = await setup({ ANTHROPIC_API_KEY: "sk-ant-test" });
     const models = (await call("/api/builder/models")).json as { id: string; configured: boolean }[];
-    expect(models.map((m) => `${m.id}:${m.configured}`)).toEqual(["demo:true", "anthropic:true", "openai:false", "openrouter:false", "ollama:true"]);
+    expect(models.map((m) => `${m.id}:${m.configured}`)).toEqual(["demo:true", "anthropic:true", "openai:false", "openrouter:false", "gemini:false", "groq:false", "mistral:false", "deepseek:false", "xai:false", "together:false", "ollama:true"]);
     expect(JSON.stringify(models)).not.toContain("sk-ant-test");
   });
 

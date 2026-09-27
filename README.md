@@ -12,7 +12,7 @@ A web console for **[agents-framework](https://github.com/agent-farmework/agents
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=black)
 ![Tailwind](https://img.shields.io/badge/Tailwind-4-06b6d4?logo=tailwindcss&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-13%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-17%20passing-brightgreen)
 
 [**Quick start**](#-quick-start) · [**Features**](#-features) · [**Build an agent**](#-build-your-own-agent) · [**Screenshots**](#-screenshots) · [**How it works**](#-how-it-works) · [**FAQ**](#-faq)
 
@@ -82,7 +82,7 @@ No code needed. Click **New agent**, fill in the form, try it in the test chat, 
 | Section | What you set |
 | --- | --- |
 | **Basics** | Name, description, instructions, example questions |
-| **Model** | Claude (Anthropic), OpenAI, OpenRouter, Ollama or any OpenAI-compatible server, or the offline Demo model. Keys stay on the server |
+| **Model** | Claude, OpenAI, OpenRouter, Gemini, Groq, Mistral, DeepSeek, xAI, Together, Ollama, **any OpenAI-compatible server**, or the offline Demo model |
 | **Tools** | Web API call (HTTPS, only its own host, private addresses blocked), knowledge search, calculator, date & time, demo order tools |
 | **Approval rules** | Per tool: never, always, or **only when a value is over a limit** (e.g. `amount over 100`) |
 | **Knowledge** | Upload PDF, TXT, Markdown, HTML, CSV or JSON, or paste text. Answers cite them |
@@ -171,7 +171,13 @@ pnpm test          # API tests
 | `OPENROUTER_API_KEY` | unset | Enables any model on OpenRouter |
 | `OLLAMA_BASE_URL` | unset | A local OpenAI-compatible server, e.g. `http://host.docker.internal:11434/v1` |
 
-Without any key the builder still works with the offline **Demo** model, so you can try everything first. On a server, store keys with `sudo bash deploy/set-key.sh anthropic` (typed hidden, saved in a root-only file) and recreate the container.
+### 🔑 Connect providers from the browser
+
+Open **Settings**, pick a provider, paste its key and press **Save & test**. The key is checked right away (by listing models, which is free), encrypted with AES-256-GCM before it is stored, and never sent back to the browser; only its last 4 characters are shown. Changes apply immediately, with no restart. Models found by the test are suggested in the builder. **Add a custom provider** connects any OpenAI-compatible server (vLLM, LM Studio, LiteLLM, company gateways) by name and URL.
+
+<img src="screenshots/15-settings-providers.png" alt="Settings page with connected providers" width="760" />
+
+The encryption key is `SECRETS_KEY` (32 bytes, base64) if set, otherwise a `secrets.key` file created next to the database with owner-only permissions. Back up both together. Keys saved in Settings take priority over the environment variables above. Without any key the builder still works with the offline **Demo** model.
 
 ## 🧠 How it works
 
@@ -260,7 +266,7 @@ Run `pnpm build`, then `pnpm start` (production mode) with a strong `ADMIN_PASSW
 - [x] Agents, live chat timeline, approvals inbox, run history and audit
 - [x] Guardrails, citations, light/dark and phone layouts
 - [x] Checks on every push (pre-push hook), plus a CI workflow for GitHub Actions
-- [x] Real model providers: Claude, OpenAI, OpenRouter, Ollama / OpenAI-compatible
+- [x] Real model providers: Claude, OpenAI, OpenRouter, Gemini, Groq, Mistral, DeepSeek, xAI, Together, Ollama and any OpenAI-compatible server, connected from the browser
 - [x] Agent builder in the browser: tools, approval rules, knowledge upload, versions and rollback
 - [x] Deployment with HTTPS (Docker + Nginx)
 - [ ] Multiple users and roles
