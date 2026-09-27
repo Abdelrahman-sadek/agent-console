@@ -1,0 +1,3 @@
+[submodule "vendor/agents-framework"]
+	path = vendor/agents-framework
+	url = https://github.com/agent-farmework/agents-framework

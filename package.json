@@ -1,0 +1,49 @@
+{
+  "name": "agent-console",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Web console for agent-farmework/agents-framework: chat with agents, approve risky actions, live run timeline, audit and cost.",
+  "scripts": {
+    "setup": "git submodule update --init && cd vendor/agents-framework && pnpm install --frozen-lockfile --config.strict-dep-builds=false && pnpm build && cd ../.. && pnpm install",
+    "dev:server": "tsx watch server/index.ts",
+    "dev:web": "vite",
+    "build": "tsc --noEmit && vite build",
+    "start": "NODE_ENV=production tsx server/index.ts",
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "dependencies": {
+    "@agent-farmework/core": "link:./vendor/agents-framework/packages/core",
+    "@agent-farmework/knowledge": "link:./vendor/agents-framework/packages/knowledge",
+    "@agent-farmework/llm": "link:./vendor/agents-framework/packages/llm",
+    "@agent-farmework/production": "link:./vendor/agents-framework/packages/production",
+    "@agent-farmework/security": "link:./vendor/agents-framework/packages/security",
+    "@agent-farmework/tools": "link:./vendor/agents-framework/packages/tools",
+    "zod": "link:./vendor/agents-framework/node_modules/zod",
+    "@hono/node-server": "^1.14.0",
+    "hono": "^4.7.0",
+    "tsx": "^4.19.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "lucide-react": "^0.540.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "tailwindcss": "^4.1.0",
+    "typescript": "~5.9.0",
+    "vite": "^7.0.0",
+    "vitest": "^3.2.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Abdelrahman-sadek/agent-console.git"
+  },
+  "packageManager": "pnpm@10.12.0"
+}
