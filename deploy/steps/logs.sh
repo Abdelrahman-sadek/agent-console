@@ -6,7 +6,7 @@ FILE="$BASE/data/logs/console.log"
 echo "== issue log: $FILE"
 if [ -f "$FILE" ]; then
   echo "  entries: $(wc -l < "$FILE")  (errors: $(grep -c '"level":"error"' "$FILE"), warnings: $(grep -c '"level":"warn"' "$FILE"))"
-  tail -n 120 "$FILE" | python3 -c '
+  grep -v '"source":"startup"' "$FILE" | tail -n 40 | python3 -c '
 import json, sys
 for line in sys.stdin:
     try: i = json.loads(line)
@@ -15,7 +15,8 @@ for line in sys.stdin:
     extra = {k: v for k, v in d.items() if k not in ("stack",)}
     print("  %s %-5s %-8s %s" % (i["time"][:19], i["level"], i["source"], i["message"]))
     if extra: print("      " + json.dumps(extra)[:400])
-    if "stack" in d: print("      stack: " + str(d["stack"]).splitlines()[0][:200])
+    if "stack" in d:
+        for n, l in enumerate(str(d["stack"]).splitlines()[:40]): print("      | " + l[:300])
 '
 else
   echo "  (no log file yet)"
