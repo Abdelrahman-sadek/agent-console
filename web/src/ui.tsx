@@ -3,6 +3,7 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { report, type AgentEvent } from "./api";
+import { splitThoughts } from "./thoughts";
 
 export const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
 
@@ -160,9 +161,21 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
  * the answer is shown as text, never run, and links open in a new tab.
  */
 export function Answer({ text, className }: { text: string; className?: string }) {
+  const md = (t: string) => <Markdown remarkPlugins={[remarkGfm]} components={{ a: ({ node: _n, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" /> }}>{t}</Markdown>;
   return (
-    <div className={cx("md text-[15px] leading-relaxed", className)} dir="auto">
-      <Markdown remarkPlugins={[remarkGfm]} components={{ a: ({ node: _n, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" /> }}>{text}</Markdown>
+    <div className={cx("space-y-2", className)}>
+      {splitThoughts(text).map((part, i) =>
+        part.kind === "thought" ? (
+          // The model's reasoning: small and faint; hover (or tap / keyboard focus) to read it.
+          <div key={i} tabIndex={0} title="The model's reasoning (hover to read)" dir="auto"
+            className="md thought rounded-lg border-s-2 border-line ps-3 text-xs leading-relaxed text-muted opacity-35 transition-opacity duration-200 hover:opacity-100 focus:opacity-100 focus:outline-none">
+            <span className="mb-0.5 block text-[10px] font-semibold tracking-wide uppercase">Thinking</span>
+            {md(part.text)}
+          </div>
+        ) : (
+          <div key={i} className="md text-[15px] leading-relaxed" dir="auto">{md(part.text)}</div>
+        ),
+      )}
     </div>
   );
 }
