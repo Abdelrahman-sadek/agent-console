@@ -7,13 +7,15 @@ SRC="$(cd "$(dirname "$0")/.." && pwd)"
 BASE="${AGENT_CONSOLE_BASE:-/opt/agent-framework}"
 REPORT_REPO="${REPORT_REPO:-Abdelrahman-sadek/agent-console-vps}"
 KEY="${REPORT_KEY:-/root/.ssh/agent-console-vps}"
-STEP="$(tr -d '[:space:]' < "$SRC/deploy/STEP")"
+# deploy/STEP lists one or more steps, one per line; they run in order.
+STEPS="$(grep -vE '^\s*(#|$)' "$SRC/deploy/STEP" | tr -d ' \t' | paste -sd' ')"
+STEP="$(echo "$STEPS" | tr ' ' '+')"
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 LOCAL_REPORTS="$BASE/reports"
 mkdir -p "$LOCAL_REPORTS"
 REPORT="$LOCAL_REPORTS/$TS-$STEP.md"
 
-[ -f "$SRC/deploy/steps/$STEP.sh" ] || { echo "Unknown step '$STEP'"; exit 1; }
+for s in $STEPS; do [ -f "$SRC/deploy/steps/$s.sh" ] || { echo "Unknown step '$s'"; exit 1; }; done
 
 # Remove anything that looks like a secret before the report leaves the server.
 redact() {
@@ -34,8 +36,13 @@ redact() {
   echo "- Scripts commit: $(git -C "$SRC" rev-parse --short HEAD 2>/dev/null || echo unknown)"
   echo "- Host: $(hostname)"
   echo
-  bash "$SRC/deploy/steps/$STEP.sh" 2>&1
-  rc=$?
+  rc=0
+  for s in $STEPS; do
+    echo; echo "# Step: $s"
+    bash "$SRC/deploy/steps/$s.sh" 2>&1; r=$?
+    echo; echo "_step $s exit code: ${r}_"
+    [ "$r" -ne 0 ] && [ "$rc" -eq 0 ] && rc=$r
+  done
   echo "$rc" > "$LOCAL_REPORTS/.last-exit"
   echo
   if [ "$rc" -eq 0 ]; then echo "**Result: ✅ step succeeded (exit 0)**"; else echo "**Result: ❌ step failed (exit $rc)**"; fi
