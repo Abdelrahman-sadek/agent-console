@@ -33,6 +33,22 @@ done
 docker exec "$NGX" test -f /var/www/me/index.html && echo "   ✅ /var/www/me/index.html" || echo "   ❌ me page missing"
 end
 
+section "Containers (re)started in the last 30 minutes, and why"
+now=$(date +%s)
+for c in $(docker ps -a --format '{{.Names}}'); do
+  s=$(docker inspect -f '{{.State.StartedAt}}' "$c"); t=$(date -d "$s" +%s 2>/dev/null || echo 0)
+  if [ $((now - t)) -lt 1800 ]; then
+    printf '   %-26s started %s  restarts=%s  health=%s  project=%s\n' "$c" "${s:11:8}" \
+      "$(docker inspect -f '{{.RestartCount}}' "$c")" "$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$c")" \
+      "$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project"}}' "$c")"
+  fi
+done
+echo; echo "autoheal restarts logged in the last hour:"; docker logs --since 1h tayyibt-autoheal-1 2>&1 | tail -10 | sed 's/^/   /'
+echo; echo "docker events (restart/die/start) in the last hour for vaultwarden, meilisearch:"
+timeout 5 docker events --since 1h --until 0s --filter container=vaultwarden --filter container=meilisearch \
+  --format '   {{.Time}} {{.Actor.Attributes.name}} {{.Action}}' 2>/dev/null | grep -E 'die|start|restart|kill' | tail -10
+end
+
 section "Agent Console (should be unaffected)"
 docker inspect agent-console --format 'status={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{end}}' 2>&1
 end
