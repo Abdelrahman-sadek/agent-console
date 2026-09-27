@@ -22,12 +22,14 @@
     "@agent-farmework/knowledge": "link:./vendor/agents-framework/packages/knowledge",
     "@agent-farmework/llm": "link:./vendor/agents-framework/packages/llm",
     "@agent-farmework/production": "link:./vendor/agents-framework/packages/production",
+    "@agent-farmework/provider-anthropic": "link:./vendor/agents-framework/packages/provider-anthropic",
     "@agent-farmework/security": "link:./vendor/agents-framework/packages/security",
     "@agent-farmework/tools": "link:./vendor/agents-framework/packages/tools",
-    "zod": "link:./vendor/agents-framework/node_modules/zod",
     "@hono/node-server": "^1.14.0",
     "hono": "^4.7.0",
-    "tsx": "^4.19.0"
+    "tsx": "^4.19.0",
+    "unpdf": "1.8.1",
+    "zod": "link:./vendor/agents-framework/node_modules/zod"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.0",

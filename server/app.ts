@@ -5,13 +5,19 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { secureHeaders } from "hono/secure-headers";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
+import type { Agent } from "@agent-farmework/core";
 import { createAgents, operator } from "./agents.js";
+import { customAgentInfo, registerBuilder } from "./builder.js";
 import type { Database } from "./db.js";
+import { AgentFactory } from "./factory.js";
+import { loadProviders } from "./providers.js";
 
 export interface AppOptions {
   db: Database;
   adminPassword: string;
   secureCookies: boolean;
+  /** Where provider keys are read from (defaults to process.env). */
+  env?: Readonly<Record<string, string | undefined>>;
 }
 
 const SESSION_COOKIE = "ac_session";
@@ -56,6 +62,17 @@ export function summarize(state: AgentState) {
 export async function createApp(options: AppOptions) {
   const { db } = options;
   const { agents, info } = await createAgents(db);
+  const { providers, info: providerInfo } = loadProviders(options.env);
+  const factory = new AgentFactory(db, new Set(providers.map((p) => p.id)), providers);
+  /** Built-in demo agents, then agents built in the browser (published version, or the draft for test chat). */
+  const resolveAgent = async (agentId: string, draft = false): Promise<Agent<unknown> | undefined> => {
+    const builtin = agents.get(agentId);
+    if (builtin !== undefined) return builtin;
+    const row = db.agents.get(agentId);
+    if (row === undefined) return undefined;
+    if (draft) return factory.build(agentId, "draft");
+    return row.currentVersion === null ? undefined : factory.build(agentId, row.currentVersion);
+  };
   const sessions = new Map<string, number>();
   const loginAttempts = new Map<string, { count: number; resetAt: number }>();
   const expected = sha256(options.adminPassword);
@@ -102,14 +119,24 @@ export async function createApp(options: AppOptions) {
   app.get("/api/me", (c) => c.json({ userId: operator.userId, tenantId: operator.tenantId }));
 
   // ------------------------------------------------------------ agents & runs
-  app.get("/api/agents", (c) => c.json(info));
-  app.get("/api/settings", (c) => c.json({ model: "Scripted demo model (offline, no API key)", database: "SQLite", operator }));
+  app.get("/api/agents", (c) => {
+    const custom = db.agents.list().filter((r) => r.currentVersion !== null).map((r) => customAgentInfo(r, db.agents.version(r.id, r.currentVersion as number)?.spec ?? r.draft));
+    return c.json([...info.map((a) => ({ ...a, kind: "builtin" })), ...custom]);
+  });
+  app.get("/api/settings", (c) => c.json({ providers: providerInfo, database: "SQLite", operator }));
+
+  registerBuilder(app, { db, factory, providerInfo });
 
   app.post("/api/agents/:agentId/runs", async (c) => {
-    const agent = agents.get(c.req.param("agentId"));
-    if (agent === undefined) return c.json({ error: "Unknown agent." }, 404);
-    const body = z.object({ input: z.string().trim().min(1).max(2_000) }).safeParse(await c.req.json().catch(() => ({})));
+    const body = z.object({ input: z.string().trim().min(1).max(2_000), draft: z.boolean().optional() }).safeParse(await c.req.json().catch(() => ({})));
     if (!body.success) return c.json({ error: "Message must be 1–2000 characters." }, 400);
+    let agent: Agent<unknown> | undefined;
+    try {
+      agent = await resolveAgent(c.req.param("agentId"), body.data.draft === true);
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : "Could not load the agent." }, 400);
+    }
+    if (agent === undefined) return c.json({ error: "Unknown or unpublished agent." }, 404);
     const runId = `run_${randomUUID()}`;
     // Runs continue in the background; the UI follows them over the event stream.
     void agent.run({ input: body.data.input, user: operator, runId }).catch((error: unknown) => console.error(`run ${runId} crashed`, error));
@@ -181,7 +208,8 @@ export async function createApp(options: AppOptions) {
       .safeParse(await c.req.json().catch(() => ({})));
     if (!body.success) return c.json({ error: "Invalid decision." }, 400);
     const state = await db.runs.load(runId);
-    const agent = state === undefined ? undefined : agents.get(state.agentId);
+    // Resume on exactly the agent version the run started with.
+    const agent = state === undefined ? undefined : (agents.get(state.agentId) ?? (await factory.forRun(state.agentId, state.agentVersion).catch(() => undefined)));
     if (state === undefined || agent === undefined) return c.json({ error: "Run not found." }, 404);
     try {
       const result = await agent.resume({
