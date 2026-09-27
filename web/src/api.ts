@@ -62,11 +62,31 @@ export interface RunDetail extends RunSummary {
 export class ApiError extends Error {
   constructor(readonly status: number, message: string, readonly issues: Issue[] = []) {
     super(message);
+    this.name = "ApiError";
   }
 }
 
+/** Send a browser-side problem to the server's issue log (never throws). */
+export function report(level: "error" | "warn", message: string, extra: { stack?: string; context?: Record<string, unknown> } = {}): void {
+  try {
+    void fetch("/api/client-errors", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      credentials: "same-origin",
+      keepalive: true,
+      body: JSON.stringify({ level, message: String(message).slice(0, 1_000), page: window.location.hash || "/", ...(extra.stack ? { stack: extra.stack.slice(0, 4_000) } : {}), ...(extra.context ? { context: extra.context } : {}) }),
+    }).catch(() => {});
+  } catch { /* reporting must never break the page */ }
+}
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(path, { ...init, headers: { "content-type": "application/json", ...(init.headers ?? {}) }, credentials: "same-origin" });
+  let res: Response;
+  try {
+    res = await fetch(path, { ...init, headers: { "content-type": "application/json", ...(init.headers ?? {}) }, credentials: "same-origin" });
+  } catch (error) {
+    report("warn", `Network error calling ${init.method ?? "GET"} ${path}: ${error instanceof Error ? error.message : String(error)}`);
+    throw new ApiError(0, "Could not reach the server. Check your connection and try again.");
+  }
   const body = (await res.json().catch(() => ({}))) as { error?: string; issues?: Issue[] };
   if (!res.ok) {
     if (res.status === 401 && path !== "/api/login") window.dispatchEvent(new Event("signed-out"));
@@ -140,13 +160,44 @@ export interface BuilderListItem { id: string; name: string; description: string
 
 export interface Issue { path: string; message: string }
 
-/** Follow a run live. Calls `onEvent` for each step and `onState` when the run settles. */
+/**
+ * Follow a run live. Calls `onEvent` for each step and `onState` when the run settles.
+ * If the live stream drops (proxy, network), it reports the problem and falls back to
+ * checking the run every 1.5 s, so the chat never hangs on "Working…".
+ */
 export function followRun(runId: string, onEvent: (e: AgentEvent) => void, onState: (s: RunSummary) => void): () => void {
+  let stopped = false;
+  let poll: ReturnType<typeof setTimeout> | undefined;
   const source = new EventSource(`/api/runs/${runId}/stream`);
-  source.addEventListener("agent-event", (m) => onEvent(JSON.parse((m as MessageEvent<string>).data) as AgentEvent));
-  source.addEventListener("run-state", (m) => {
-    onState(JSON.parse((m as MessageEvent<string>).data) as RunSummary);
+  const settle = (s: RunSummary) => {
+    if (stopped) return;
+    stopped = true;
     source.close();
-  });
-  return () => source.close();
+    clearTimeout(poll);
+    onState(s);
+  };
+  const pollRun = async () => {
+    if (stopped) return;
+    try {
+      const detail = await api<RunDetail>(`/api/runs/${runId}`);
+      detail.events.forEach(onEvent);
+      if (!["CREATED", "RUNNING"].includes(detail.status)) return settle(detail);
+    } catch { /* try again */ }
+    poll = setTimeout(() => void pollRun(), 1_500);
+  };
+  source.addEventListener("agent-event", (m) => onEvent(JSON.parse((m as MessageEvent<string>).data) as AgentEvent));
+  source.addEventListener("run-state", (m) => settle(JSON.parse((m as MessageEvent<string>).data) as RunSummary));
+  source.onerror = () => {
+    if (stopped || poll !== undefined) return;
+    source.close();
+    report("warn", "Live updates stream failed; switched to polling", { context: { runId } });
+    void pollRun();
+  };
+  return () => {
+    stopped = true;
+    source.close();
+    clearTimeout(poll);
+  };
 }
+
+export interface LogIssue { time: string; level: "error" | "warn" | "info"; source: string; message: string; detail?: Record<string, unknown> }

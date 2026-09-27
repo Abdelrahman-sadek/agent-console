@@ -13,6 +13,7 @@ import { AgentFactory } from "./factory.js";
 import { loadProviders, type ProviderInfo } from "./providers.js";
 import { ProviderSecrets, loadMasterKey } from "./secrets.js";
 import { registerProviderSettings } from "./settings.js";
+import { IssueLog, errorDetail, type Level, type Source } from "./logger.js";
 
 export interface AppOptions {
   db: Database;
@@ -22,6 +23,8 @@ export interface AppOptions {
   env?: Readonly<Record<string, string | undefined>>;
   /** Encrypts provider keys saved from the browser (see loadMasterKey). A random key is used when omitted. */
   masterKey?: Buffer;
+  /** Where problems are recorded (file + memory). An in-memory log is used when omitted. */
+  log?: IssueLog;
 }
 
 /** Providers and the factory built from them; replaced whenever provider settings change. */
@@ -73,6 +76,7 @@ export async function createApp(options: AppOptions) {
   const { db } = options;
   const { agents, info } = await createAgents(db);
   const env = options.env ?? process.env;
+  const log = options.log ?? new IssueLog();
   const secrets = new ProviderSecrets(db.db, options.masterKey ?? loadMasterKey(":memory:", {}));
   const build = (): LiveProviders => {
     const { providers, info } = loadProviders(env, secrets.all());
@@ -95,6 +99,39 @@ export async function createApp(options: AppOptions) {
 
   const app = new Hono();
   app.use("*", secureHeaders());
+
+  // Anything a route throws is logged with its path, and the browser gets a plain message.
+  app.onError((error, c) => {
+    log.error("server", error.message, { method: c.req.method, path: c.req.path, ...errorDetail(error) });
+    return c.json({ error: "Something went wrong on the server. It was recorded in Logs." }, 500);
+  });
+
+  /** Log runs that end badly, with the agent and the reason. */
+  const watchRun = (agentId: string, runId: string, started: Promise<unknown>) =>
+    started
+      .then(async () => {
+        const state = await db.runs.load(runId);
+        if (state !== undefined && ["FAILED", "TIMED_OUT", "CANCELLED"].includes(state.status)) {
+          log.warn("run", `${agentId}: ${state.error?.message ?? state.status}`, { runId, status: state.status, code: state.error?.code, agentVersion: state.agentVersion });
+        }
+      })
+      .catch((error: unknown) => log.error("run", `${agentId}: the run crashed: ${error instanceof Error ? error.message : String(error)}`, { runId, ...errorDetail(error) }));
+
+  // Browser errors (page crashes, lost live streams) are sent here so they land in the same log.
+  const clientReports = new Map<string, { count: number; resetAt: number }>();
+  app.post("/api/client-errors", async (c) => {
+    const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "local";
+    const now = Date.now();
+    const seen = clientReports.get(ip);
+    if (seen !== undefined && seen.resetAt > now && seen.count >= 30) return c.json({ ok: false }, 429);
+    clientReports.set(ip, seen !== undefined && seen.resetAt > now ? { ...seen, count: seen.count + 1 } : { count: 1, resetAt: now + 60_000 });
+    const body = z
+      .object({ level: z.enum(["error", "warn"]).default("error"), message: z.string().max(1_000), page: z.string().max(300).optional(), stack: z.string().max(4_000).optional(), context: z.record(z.string(), z.unknown()).optional() })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!body.success) return c.json({ ok: false }, 400);
+    log.write(body.data.level, "browser", body.data.message, { page: body.data.page, stack: body.data.stack, userAgent: c.req.header("user-agent")?.slice(0, 200), ...body.data.context });
+    return c.json({ ok: true });
+  });
 
   app.get("/api/health", (c) => c.json({ ok: true, uptimeSeconds: Math.round(process.uptime()) }));
 
@@ -142,7 +179,20 @@ export async function createApp(options: AppOptions) {
   app.get("/api/settings", (c) => c.json({ providers: live.providerInfo, database: "SQLite", operator }));
 
   registerBuilder(app, { db, live });
-  registerProviderSettings(app, { secrets, env, live, reload });
+
+  // ------------------------------------------------------------ logs (debugger)
+  app.get("/api/logs", (c) => {
+    const level = c.req.query("level") as Level | undefined;
+    const source = c.req.query("source") as Source | undefined;
+    const limit = Math.min(1_000, Math.max(1, Number(c.req.query("limit") ?? 200) || 200));
+    return c.json({ counts: log.counts(), file: log.file ?? null, issues: log.recent({ ...(level ? { level } : {}), ...(source ? { source } : {}), limit }) });
+  });
+  app.get("/api/logs/download", (c) => {
+    const lines = log.recent({ limit: 1_000 }).reverse().map((i) => JSON.stringify(i)).join("\n");
+    c.header("content-disposition", `attachment; filename="agent-console-log-${new Date().toISOString().slice(0, 10)}.jsonl"`);
+    return c.body(`${lines}\n`, 200, { "content-type": "application/x-ndjson; charset=utf-8" });
+  });
+  registerProviderSettings(app, { secrets, env, live, reload, log });
 
   app.post("/api/agents/:agentId/runs", async (c) => {
     const body = z.object({ input: z.string().trim().min(1).max(2_000), draft: z.boolean().optional() }).safeParse(await c.req.json().catch(() => ({})));
@@ -151,12 +201,13 @@ export async function createApp(options: AppOptions) {
     try {
       agent = await resolveAgent(c.req.param("agentId"), body.data.draft === true);
     } catch (error) {
+      log.warn("run", `Could not start ${c.req.param("agentId")}: ${error instanceof Error ? error.message : String(error)}`, errorDetail(error));
       return c.json({ error: error instanceof Error ? error.message : "Could not load the agent." }, 400);
     }
     if (agent === undefined) return c.json({ error: "Unknown or unpublished agent." }, 404);
     const runId = `run_${randomUUID()}`;
     // Runs continue in the background; the UI follows them over the event stream.
-    void agent.run({ input: body.data.input, user: operator, runId }).catch((error: unknown) => console.error(`run ${runId} crashed`, error));
+    void watchRun(c.req.param("agentId"), runId, agent.run({ input: body.data.input, user: operator, runId }));
     return c.json({ runId }, 202);
   });
 
@@ -242,8 +293,10 @@ export async function createApp(options: AppOptions) {
         ],
       });
       const after = await db.runs.load(result.runId);
+      if (after !== undefined && ["FAILED", "TIMED_OUT", "CANCELLED"].includes(after.status)) log.warn("run", `${after.agentId}: ${after.error?.message ?? after.status} (after approval)`, { runId, status: after.status, code: after.error?.code });
       return c.json(after === undefined ? { status: result.status } : summarize(after));
     } catch (error) {
+      log.warn("run", `Approval on ${runId} failed: ${error instanceof Error ? error.message : String(error)}`, errorDetail(error));
       return c.json({ error: error instanceof Error ? error.message : "Could not apply the decision." }, 409);
     }
   });

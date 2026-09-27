@@ -12,7 +12,7 @@ A web console for **[agents-framework](https://github.com/agent-farmework/agents
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=black)
 ![Tailwind](https://img.shields.io/badge/Tailwind-4-06b6d4?logo=tailwindcss&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-17%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-19%20passing-brightgreen)
 
 [**Quick start**](#-quick-start) · [**Features**](#-features) · [**Build an agent**](#-build-your-own-agent) · [**Screenshots**](#-screenshots) · [**How it works**](#-how-it-works) · [**FAQ**](#-faq)
 
@@ -178,6 +178,12 @@ Open **Settings**, pick a provider, paste its key and press **Save & test**. The
 <img src="screenshots/15-settings-providers.png" alt="Settings page with connected providers" width="760" />
 
 The encryption key is `SECRETS_KEY` (32 bytes, base64) if set, otherwise a `secrets.key` file created next to the database with owner-only permissions. Back up both together. Keys saved in Settings take priority over the environment variables above. Without any key the builder still works with the offline **Demo** model.
+
+## 🐞 Logs and debugging
+
+The **Logs** page shows every problem in one place: server errors, failed runs (with the agent and reason), provider errors, and crashes in your browser, which are sent to the server automatically. A page that crashes shows the error instead of going blank. If the live-updates stream is blocked by a proxy, chat falls back to polling and records a warning. Entries are also written, with secrets removed, to `logs/console.log` next to the database (JSON lines, rotated at 5 MB); **Download** exports the latest entries.
+
+<img src="screenshots/16-logs.png" alt="Logs page" width="760" />
 
 ## 🧠 How it works
 

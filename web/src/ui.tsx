@@ -1,6 +1,6 @@
 import { Bot, Brain, CheckCircle2, CircleAlert, CircleDot, Clock, Hand, Library, Loader2, ShieldAlert, Wrench, XCircle } from "lucide-react";
-import type { ReactNode } from "react";
-import type { AgentEvent } from "./api";
+import { Component, type ErrorInfo, type ReactNode } from "react";
+import { report, type AgentEvent } from "./api";
 
 export const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
 
@@ -126,4 +126,29 @@ export function agentName(agents: { id: string; name: string }[], id: string): s
   const base = draft ? id.slice(0, -6) : id;
   const name = agents.find((a) => a.id === base)?.name ?? base;
   return draft ? `${name} (test)` : name;
+}
+
+/** Shows a readable error instead of a blank page, and records it in Logs. */
+export class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state: { error: Error | null } = { error: null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    report("error", `Page crashed: ${error.message}`, { stack: `${error.stack ?? ""}\n--- component ---${info.componentStack ?? ""}` });
+  }
+  render() {
+    if (this.state.error === null) return this.props.children;
+    return (
+      <div className="mx-auto max-w-2xl px-4 py-12 sm:px-8">
+        <div className="rounded-2xl border border-rose-500/30 bg-rose-500/5 p-6">
+          <h1 className="flex items-center gap-2 text-lg font-semibold text-rose-700 dark:text-rose-300"><CircleAlert size={20} />This page hit an error</h1>
+          <p className="mt-2 text-sm text-muted">It was recorded in <a href="#/logs" className="text-brand underline">Logs</a>. You can go back or reload.</p>
+          <pre className="mt-4 max-h-48 overflow-auto rounded-xl bg-panel-2 p-3 text-xs whitespace-pre-wrap">{this.state.error.message}</pre>
+          <div className="mt-4 flex gap-2">
+            <Button onClick={() => { this.setState({ error: null }); window.history.back(); }} variant="ghost">Go back</Button>
+            <Button onClick={() => window.location.reload()}>Reload</Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 }

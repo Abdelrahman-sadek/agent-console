@@ -1,7 +1,7 @@
-import { Bot, Hand, History, KeyRound, LogOut, MessageSquare, Moon, Sun, Zap } from "lucide-react";
+import { Bot, Bug, Hand, History, KeyRound, LogOut, MessageSquare, Moon, Sun, Zap } from "lucide-react";
 import { StrictMode, useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { api, post, type AgentInfo, type BuilderListItem, type ProviderInfo, type RunSummary } from "./api";
+import { api, post, report, type AgentInfo, type BuilderListItem, type ProviderInfo, type RunSummary } from "./api";
 import { AgentsPage } from "./pages/Agents";
 import { ApprovalsPage } from "./pages/Approvals";
 import { BuilderPage } from "./pages/Builder";
@@ -9,8 +9,9 @@ import { ChatPage } from "./pages/Chat";
 import { LoginPage } from "./pages/Login";
 import { RunDetailPage, RunsPage } from "./pages/Runs";
 import { SettingsPage } from "./pages/Settings";
+import { LogsPage } from "./pages/Logs";
 import "./styles.css";
-import { cx } from "./ui";
+import { ErrorBoundary, cx } from "./ui";
 
 function useHashRoute(): string[] {
   const read = () => window.location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
@@ -84,6 +85,7 @@ function App() {
     { key: "approvals", label: "Approvals", icon: <Hand size={18} />, href: "#/approvals", badge: waiting },
     { key: "runs", label: "Runs", icon: <History size={18} />, href: "#/runs" },
     { key: "settings", label: "Settings", icon: <KeyRound size={18} />, href: "#/settings" },
+    { key: "logs", label: "Logs", icon: <Bug size={18} />, href: "#/logs" },
   ];
 
   // Runs and approvals may belong to agents that are not published (builder test runs).
@@ -92,7 +94,8 @@ function App() {
 
   let page;
   const reloadProviders = () => api<{ providers: ProviderInfo[] }>("/api/settings").then((s) => setProviders(s.providers)).catch(() => {});
-  if (section === "settings") page = <SettingsPage onChange={() => void reloadProviders()} />;
+  if (section === "logs") page = <LogsPage />;
+  else if (section === "settings") page = <SettingsPage onChange={() => void reloadProviders()} />;
   else if (section === "build" && id) page = <BuilderPage key={id} id={id} onPublished={reloadAgents} />;
   else if (section === "chat") page = <ChatPage agents={agents} agentId={id ?? agents[0]?.id ?? "support"} onChange={refreshWaiting} />;
   else if (section === "approvals") page = <ApprovalsPage agents={named} onChange={refreshWaiting} />;
@@ -132,9 +135,17 @@ function App() {
           </button>
         </div>
       </aside>
-      <main className="scroll-thin min-w-0 flex-1 overflow-y-auto">{page}</main>
+      <main className="scroll-thin min-w-0 flex-1 overflow-y-auto"><ErrorBoundary key={route.join("/")}>{page}</ErrorBoundary></main>
     </div>
   );
 }
+
+// Errors outside React (event handlers, promises) are recorded in Logs too.
+window.addEventListener("error", (e) => report("error", e.message || "Script error", { ...(e.error instanceof Error && e.error.stack ? { stack: e.error.stack } : {}), context: { file: e.filename, line: e.lineno } }));
+window.addEventListener("unhandledrejection", (e) => {
+  const r = e.reason as unknown;
+  if (r instanceof Error && r.name === "ApiError") return; // already shown to the user and logged by the server
+  report("error", `Unhandled promise rejection: ${r instanceof Error ? r.message : String(r)}`, r instanceof Error && r.stack ? { stack: r.stack } : {});
+});
 
 createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);

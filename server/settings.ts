@@ -2,6 +2,7 @@ import type { Hono } from "hono";
 import { z } from "zod";
 import type { LiveProviders } from "./app.js";
 import { CUSTOM_ID, PRESETS, effective, isPreset, testProvider, type ProviderKind, type SavedProvider } from "./providers.js";
+import type { IssueLog } from "./logger.js";
 import type { ProviderSecrets } from "./secrets.js";
 
 const url = z.string().trim().max(300).url().refine((u) => /^https?:\/\//.test(u), "must start with http:// or https://");
@@ -15,8 +16,8 @@ const Body = z.object({
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 30);
 
 /** Provider keys and custom providers, managed from the browser. Keys are write-only. */
-export function registerProviderSettings(app: Hono, deps: { secrets: ProviderSecrets; env: Readonly<Record<string, string | undefined>>; live: LiveProviders; reload: () => void }) {
-  const { secrets, env, live, reload } = deps;
+export function registerProviderSettings(app: Hono, deps: { secrets: ProviderSecrets; env: Readonly<Record<string, string | undefined>>; live: LiveProviders; reload: () => void; log: IssueLog }) {
+  const { secrets, env, live, reload, log } = deps;
   const known = (id: string) => isPreset(id) || (CUSTOM_ID.test(id) && secrets.all()[id] !== undefined);
   const presets = () => PRESETS.map((p) => ({ id: p.id, label: p.label, kind: p.kind, defaultBaseURL: p.defaultBaseURL ?? null, keyUrl: p.keyUrl ?? null, needsKey: p.needsKey }));
 
@@ -30,6 +31,7 @@ export function registerProviderSettings(app: Hono, deps: { secrets: ProviderSec
     if (!CUSTOM_ID.test(id) || isPreset(id) || secrets.all()[id] !== undefined) return c.json({ error: "A provider with that name already exists." }, 409);
     secrets.set(id, { kind: "openai-compatible", label: body.data.label, baseURL: body.data.baseURL, ...(body.data.apiKey ? { apiKey: body.data.apiKey } : {}) });
     reload();
+    log.info("settings", `Custom provider added: ${body.data.label}`, { id, baseURL: body.data.baseURL });
     return c.json({ id, providers: live.providerInfo.filter((p) => p.id !== "demo") }, 201);
   });
 
@@ -49,6 +51,7 @@ export function registerProviderSettings(app: Hono, deps: { secrets: ProviderSec
     if (body.data.apiKey !== undefined || body.data.baseURL !== undefined) delete next.models; // the next Test refreshes them
     secrets.set(id, next);
     reload();
+    log.info("settings", `Provider settings saved: ${id}`, { key: body.data.apiKey === undefined ? "unchanged" : body.data.apiKey ? "replaced" : "removed", baseURL: next.baseURL ?? null });
     return c.json({ providers: live.providerInfo.filter((p) => p.id !== "demo") });
   });
 
@@ -58,6 +61,7 @@ export function registerProviderSettings(app: Hono, deps: { secrets: ProviderSec
     if (!known(id)) return c.json({ error: "Unknown provider." }, 404);
     secrets.remove(id);
     reload();
+    log.info("settings", `Provider settings removed: ${id}`);
     return c.json({ providers: live.providerInfo.filter((p) => p.id !== "demo") });
   });
 
@@ -71,6 +75,7 @@ export function registerProviderSettings(app: Hono, deps: { secrets: ProviderSec
     if ((preset?.needsKey ?? false) && !e.apiKey) return c.json({ ok: false, message: "Add an API key first.", models: [] });
     if (e.kind !== "anthropic" && !e.baseURL) return c.json({ ok: false, message: "Add the server URL first.", models: [] });
     const result = await testProvider(e.kind as ProviderKind, e.apiKey, e.baseURL);
+    if (!result.ok) log.warn("provider", `Test failed for ${id}: ${result.message}`, { baseURL: e.baseURL ?? null });
     if (result.ok && result.models.length > 0 && saved[id] !== undefined) {
       const { updatedAt: _u, ...value } = saved[id];
       secrets.set(id, { ...value, models: result.models });

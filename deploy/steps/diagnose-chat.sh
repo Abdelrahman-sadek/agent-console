@@ -44,3 +44,27 @@ rm -f "$pjar"
 echo "== nginx errors for the console (last 30)"
 docker exec tayyibt-nginx-1 sh -c 'tail -n 400 /var/log/nginx/error.log 2>/dev/null' 2>/dev/null | grep -i "agent-console" | tail -30
 echo "== nginx site config"; docker exec tayyibt-nginx-1 sh -c 'cat /etc/nginx/conf.d/agent-console.conf' 2>/dev/null | grep -vE '^\s*#' | grep -vE '^\s*$' | head -60
+
+echo; echo "== SELF-TEST through the public site (creates a temporary agent, then deletes it)"
+J="$(mktemp)"; login "$PUBLIC" "$J" >/dev/null
+api() { curl -s -b "$J" -H 'content-type: application/json' "$@"; }
+ID="$(api -X POST "$PUBLIC/api/builder/agents" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("id",""))')"
+echo "  create agent:        ${ID:-FAILED}"
+if [ -n "$ID" ]; then
+  api -X PUT "$PUBLIC/api/builder/agents/$ID" -d '{"spec":{"name":"VPS self-test","instructions":"Say hello briefly. This is an automatic test.","model":{"providerId":"demo","modelId":"demo"}}}' -o /dev/null -w "  save draft:          %{http_code}\n"
+  DRAFT_RUN="$(api -X POST "$PUBLIC/api/agents/$ID/runs" -d '{"input":"test chat hello","draft":true}')"; echo "  test-chat run:       $DRAFT_RUN"
+  api -X POST "$PUBLIC/api/builder/agents/$ID/publish" -d '{"note":"self-test"}' -o /dev/null -w "  publish:             %{http_code}\n"
+  printf '  listed in Chat:      '; api "$PUBLIC/api/agents" | python3 -c "import json,sys; print(any(a['id']=='$ID' for a in json.load(sys.stdin)))"
+  RUN="$(api -X POST "$PUBLIC/api/agents/$ID/runs" -d '{"input":"hello from the VPS self-test"}' | python3 -c 'import json,sys; print(json.load(sys.stdin).get("runId",""))')"
+  echo "  chat run started:    ${RUN:-FAILED}"
+  if [ -n "$RUN" ]; then
+    echo "  live stream (nginx), first 8 s:"
+    curl -s -N --max-time 8 -b "$J" "$PUBLIC/api/runs/$RUN/stream" | grep -E '^event:' | sort | uniq -c | sed 's/^/    /'
+    printf '  final run state:     '; api "$PUBLIC/api/runs/$RUN" | python3 -c 'import json,sys; r=json.load(sys.stdin); print(r.get("status"), "|", str(r.get("output"))[:120], "|", r.get("error"))'
+  fi
+  api -X DELETE "$PUBLIC/api/builder/agents/$ID" -o /dev/null -w "  delete test agent:   %{http_code}\n"
+fi
+rm -f "$J"
+
+echo; echo "== console log file (last 60 entries)"
+tail -n 60 "$BASE/data/logs/console.log" 2>/dev/null || echo "  (no log file yet)"
