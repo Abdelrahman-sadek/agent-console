@@ -1,0 +1,25 @@
+# Agent Console on the shared VPS. Own project, own network, localhost-only port.
+name: agent-console
+services:
+  agent-console:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: agent-console:latest
+    container_name: agent-console
+    restart: unless-stopped
+    env_file: /opt/agent-framework/app.env
+    volumes:
+      - /opt/agent-framework/data:/data
+    ports:
+      - "127.0.0.1:3300:3000"
+    networks:
+      - agent-console-net
+    mem_limit: 512m
+    cpus: 1.0
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+networks:
+  agent-console-net:
+    name: agent-console-net
