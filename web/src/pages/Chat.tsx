@@ -42,7 +42,10 @@ export function Conversation({ agent, draft = false, onChange }: { agent: Pick<A
   const stops = useRef<(() => void)[]>([]);
 
   useEffect(() => () => stops.current.forEach((s) => s()), []);
-  useEffect(() => bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" }), [turns]);
+  // Braces matter: newer Chrome returns a Promise from scrollIntoView, and React would call it as a cleanup.
+  useEffect(() => {
+    bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [turns]);
 
   const update = (runId: string, fn: (t: Turn) => Turn) => setTurns((ts) => ts.map((t) => (t.runId === runId ? fn(t) : t)));
 
