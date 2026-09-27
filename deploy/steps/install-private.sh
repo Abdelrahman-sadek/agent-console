@@ -26,7 +26,12 @@ fi
 chmod 600 "$BASE/app.env" "$BASE/admin-password" 2>/dev/null
 
 echo "Fetching the framework (git submodule)…"
+umask 022
 git -C "$SRC" submodule update --init --depth 1 vendor/agents-framework 2>&1 | tail -2
+# This server's default umask is 077, which made the checkout root-only; the container
+# runs as the unprivileged `node` user and must be able to read it. Only our own folder.
+chmod -R a+rX "$SRC"
+echo "source readable by the container user: $(stat -c %A "$SRC/vendor/agents-framework/packages/core")"
 echo "Building the image (first time takes a few minutes)…"
 "${COMPOSE[@]}" build 2>&1 | grep -E 'ERROR|error|Built|built in|naming to' | tail -8
 "${COMPOSE[@]}" up -d 2>&1 | tail -3

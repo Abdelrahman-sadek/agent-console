@@ -15,6 +15,9 @@ RUN pnpm build
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 DATABASE_PATH=/data/console.db
 EXPOSE 3000
 USER node
+# Fail the build (not the running container) if the app or framework is unreadable
+# for the runtime user, e.g. when the build context came from a umask-077 checkout.
+RUN node --import tsx -e "await import('./server/db.ts'); console.log('module check: ok')"
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 CMD ["node", "--import", "tsx", "server/index.ts"]
