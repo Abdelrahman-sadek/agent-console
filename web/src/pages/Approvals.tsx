@@ -1,7 +1,7 @@
 import { Check, Clock, Hand, Inbox, Pencil, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { api, post, type AgentInfo, type PendingApproval, type RunSummary } from "../api";
-import { Button, Card, Empty, ago } from "../ui";
+import { Button, Card, Empty, agentName, ago } from "../ui";
 
 const label = (k: string) => k.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
 
@@ -83,7 +83,7 @@ export function ApprovalsPage({ agents, onChange }: { agents: AgentInfo[]; onCha
   const [done, setDone] = useState<RunSummary[]>([]);
   const load = useCallback(() => api<RunSummary[]>("/api/approvals").then(setRuns).catch(() => setRuns([])), []);
   useEffect(() => { void load(); }, [load]);
-  const name = (id: string) => agents.find((a) => a.id === id)?.name ?? id;
+  const name = (id: string) => agentName(agents, id);
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-8">

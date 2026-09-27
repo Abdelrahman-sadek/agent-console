@@ -4,7 +4,7 @@
 
 ### Run AI agents you can trust, and watch every step they take
 
-Chat with agents, approve risky actions before they happen, and review every run with its full timeline, tool audit and cost.<br/>
+Build agents in the browser, chat with them, approve risky actions before they happen, and review every run with its full timeline, tool audit and cost.<br/>
 A web console for **[agents-framework](https://github.com/agent-farmework/agents-framework)**.
 
 ![Checks](https://img.shields.io/badge/checks-pre--push-4f46e5?logo=git&logoColor=white)
@@ -12,9 +12,9 @@ A web console for **[agents-framework](https://github.com/agent-farmework/agents
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=black)
 ![Tailwind](https://img.shields.io/badge/Tailwind-4-06b6d4?logo=tailwindcss&logoColor=white)
-![Tests](https://img.shields.io/badge/API%20tests-5%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-13%20passing-brightgreen)
 
-[**Quick start**](#-quick-start) · [**Features**](#-features) · [**Screenshots**](#-screenshots) · [**How it works**](#-how-it-works) · [**FAQ**](#-faq)
+[**Quick start**](#-quick-start) · [**Features**](#-features) · [**Build an agent**](#-build-your-own-agent) · [**Screenshots**](#-screenshots) · [**How it works**](#-how-it-works) · [**FAQ**](#-faq)
 
 <br/>
 
@@ -72,6 +72,32 @@ Light and dark themes, a **phone layout**, keyboard navigation and screen-reader
 </td>
 </tr>
 </table>
+
+## 🧩 Build your own agent
+
+No code needed. Click **New agent**, fill in the form, try it in the test chat, and publish.
+
+<img src="screenshots/12-builder-test-publish.png" alt="Agent builder with knowledge, safety limits, publish panel and a test chat answering with a citation" width="900" />
+
+| Section | What you set |
+| --- | --- |
+| **Basics** | Name, description, instructions, example questions |
+| **Model** | Claude (Anthropic), OpenAI, OpenRouter, Ollama or any OpenAI-compatible server, or the offline Demo model. Keys stay on the server |
+| **Tools** | Web API call (HTTPS, only its own host, private addresses blocked), knowledge search, calculator, date & time, demo order tools |
+| **Approval rules** | Per tool: never, always, or **only when a value is over a limit** (e.g. `amount over 100`) |
+| **Knowledge** | Upload PDF, TXT, Markdown, HTML, CSV or JSON, or paste text. Answers cite them |
+| **Safety & limits** | PII redaction, prompt-injection blocking, max steps, tool calls and cost per run |
+
+Every publish creates a **version** with a note. Roll back with one click. A run waiting for approval always resumes on the version it started with. Test-chat runs show up in history as *Name (test)*.
+
+<table>
+<tr>
+<td width="50%"><img src="screenshots/14-agents-custom.png" alt="Agents page with a custom agent" /><p align="center"><b>Your agents</b> next to the built-in ones</p></td>
+<td width="50%"><img src="screenshots/13-builder-versions.png" alt="Versions and rollback" /><p align="center"><b>Versions</b>: publish notes and one-click rollback</p></td>
+</tr>
+</table>
+
+Under the hood each agent is a JSON spec validated with zod and turned into a real `defineAgent(...)` from agents-framework, so everything the framework guarantees (tool permissions, approvals, guardrails, limits, audit) applies to agents built in the browser too.
 
 ## 📸 Screenshots
 
@@ -140,6 +166,12 @@ pnpm test          # API tests
 | `PORT` / `HOST` | `3000` / `127.0.0.1` | Where the server listens. Put Nginx or Caddy in front for HTTPS. |
 | `DATABASE_PATH` | `data/console.db` | SQLite file for runs, events and audit |
 | `INSECURE_COOKIES` | unset | Set to `1` only to test production mode over plain HTTP |
+| `ANTHROPIC_API_KEY` | unset | Enables Claude models in the builder |
+| `OPENAI_API_KEY` / `OPENAI_BASE_URL` | unset / OpenAI | Enables OpenAI (or another OpenAI-compatible API) |
+| `OPENROUTER_API_KEY` | unset | Enables any model on OpenRouter |
+| `OLLAMA_BASE_URL` | unset | A local OpenAI-compatible server, e.g. `http://host.docker.internal:11434/v1` |
+
+Without any key the builder still works with the offline **Demo** model, so you can try everything first. On a server, store keys with `sudo bash deploy/set-key.sh anthropic` (typed hidden, saved in a root-only file) and recreate the container.
 
 ## 🧠 How it works
 
@@ -228,10 +260,11 @@ Run `pnpm build`, then `pnpm start` (production mode) with a strong `ADMIN_PASSW
 - [x] Agents, live chat timeline, approvals inbox, run history and audit
 - [x] Guardrails, citations, light/dark and phone layouts
 - [x] Checks on every push (pre-push hook), plus a CI workflow for GitHub Actions
-- [ ] Real model providers (Claude, OpenAI, local) selected by environment variable
-- [ ] Deployment guide with HTTPS
+- [x] Real model providers: Claude, OpenAI, OpenRouter, Ollama / OpenAI-compatible
+- [x] Agent builder in the browser: tools, approval rules, knowledge upload, versions and rollback
+- [x] Deployment with HTTPS (Docker + Nginx)
 - [ ] Multiple users and roles
-- [ ] Upload your own documents to the Q&A agent
+- [ ] Scanned-PDF (OCR) upload and per-version knowledge snapshots
 
 ## 🤝 Contributing
 

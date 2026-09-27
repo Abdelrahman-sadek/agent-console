@@ -1,9 +1,10 @@
 import { Bot, Hand, History, LogOut, MessageSquare, Moon, Sun, Zap } from "lucide-react";
 import { StrictMode, useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { api, post, type AgentInfo, type RunSummary } from "./api";
+import { api, post, type AgentInfo, type BuilderListItem, type ProviderInfo, type RunSummary } from "./api";
 import { AgentsPage } from "./pages/Agents";
 import { ApprovalsPage } from "./pages/Approvals";
+import { BuilderPage } from "./pages/Builder";
 import { ChatPage } from "./pages/Chat";
 import { LoginPage } from "./pages/Login";
 import { RunDetailPage, RunsPage } from "./pages/Runs";
@@ -42,6 +43,8 @@ function App() {
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [waiting, setWaiting] = useState(0);
+  const [drafts, setDrafts] = useState<{ id: string; name: string }[]>([]);
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const route = useHashRoute();
 
   const refreshWaiting = useCallback(() => {
@@ -54,6 +57,15 @@ function App() {
     window.addEventListener("signed-out", out);
     return () => window.removeEventListener("signed-out", out);
   }, []);
+  const reloadAgents = useCallback(() => {
+    api<AgentInfo[]>("/api/agents").then(setAgents).catch(() => {});
+    api<BuilderListItem[]>("/api/builder/agents").then((l) => setDrafts(l.map((d) => ({ id: d.id, name: d.name })))).catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (!signedIn) return;
+    reloadAgents();
+    api<{ providers: ProviderInfo[] }>("/api/settings").then((s) => setProviders(s.providers)).catch(() => {});
+  }, [signedIn, reloadAgents]);
   useEffect(() => {
     if (!signedIn) return;
     refreshWaiting();
@@ -72,12 +84,17 @@ function App() {
     { key: "runs", label: "Runs", icon: <History size={18} />, href: "#/runs" },
   ];
 
+  // Runs and approvals may belong to agents that are not published (builder test runs).
+  const named = [...agents, ...drafts.filter((d) => !agents.some((a) => a.id === d.id)).map((d) => ({ ...d, description: "", examples: [], tools: [], guardrails: [], limits: { maxSteps: 0, maxToolCalls: 0 } }))];
+  const liveModels = providers.filter((p) => p.configured && p.id !== "demo").map((p) => p.label.replace(/ \(.*\)$/, ""));
+
   let page;
-  if (section === "chat") page = <ChatPage agents={agents} agentId={id ?? agents[0]?.id ?? "support"} onChange={refreshWaiting} />;
-  else if (section === "approvals") page = <ApprovalsPage agents={agents} onChange={refreshWaiting} />;
-  else if (section === "runs" && id) page = <RunDetailPage runId={id} agents={agents} />;
-  else if (section === "runs") page = <RunsPage agents={agents} />;
-  else page = <AgentsPage agents={agents} />;
+  if (section === "build" && id) page = <BuilderPage key={id} id={id} onPublished={reloadAgents} />;
+  else if (section === "chat") page = <ChatPage agents={agents} agentId={id ?? agents[0]?.id ?? "support"} onChange={refreshWaiting} />;
+  else if (section === "approvals") page = <ApprovalsPage agents={named} onChange={refreshWaiting} />;
+  else if (section === "runs" && id) page = <RunDetailPage runId={id} agents={named} />;
+  else if (section === "runs") page = <RunsPage agents={named} />;
+  else page = <AgentsPage key={agents.length} agents={agents} />;
 
   return (
     <div className="flex h-full flex-col md:flex-row">
@@ -91,9 +108,9 @@ function App() {
         </a>
         <nav className="flex flex-1 gap-1 overflow-x-auto md:flex-none md:flex-col">
           {nav.map((n) => (
-            <a key={n.key} href={n.href} aria-current={section === n.key ? "page" : undefined}
+            <a key={n.key} href={n.href} aria-current={section === n.key || (n.key === "agents" && section === "build") ? "page" : undefined}
               className={cx("flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium whitespace-nowrap transition",
-                section === n.key ? "bg-brand/10 text-brand" : "text-muted hover:bg-panel-2 hover:text-ink")}>
+                section === n.key || (n.key === "agents" && section === "build") ? "bg-brand/10 text-brand" : "text-muted hover:bg-panel-2 hover:text-ink")}>
               {n.icon}<span className="hidden sm:inline">{n.label}</span>
               {n.badge ? <span className="ml-auto rounded-full bg-amber-500 px-1.5 text-[11px] font-semibold text-white tabular-nums">{n.badge}</span> : null}
             </a>
@@ -101,7 +118,7 @@ function App() {
         </nav>
         <div className="flex items-center gap-1 md:mt-auto md:flex-col md:items-stretch">
           <div className="hidden rounded-xl bg-panel-2 px-3 py-2.5 text-xs text-muted md:block">
-            <div className="font-medium text-ink">Model</div>Scripted demo · offline
+            <div className="font-medium text-ink">Models</div>{liveModels.length > 0 ? liveModels.join(" · ") : "Demo only · add an API key on the server"}
           </div>
           <button onClick={toggleTheme} className="flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm text-muted hover:bg-panel-2 hover:text-ink" aria-label="Toggle theme">
             {dark ? <Sun size={18} /> : <Moon size={18} />}<span className="hidden md:inline">{dark ? "Light mode" : "Dark mode"}</span>

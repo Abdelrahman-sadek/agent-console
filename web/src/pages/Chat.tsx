@@ -14,26 +14,44 @@ interface Turn {
 
 export function ChatPage({ agents, agentId, onChange }: { agents: AgentInfo[]; agentId: string; onChange: () => void }) {
   const agent = agents.find((a) => a.id === agentId) ?? agents[0];
+  if (!agent) return null;
+  return (
+    <div className="flex h-full flex-col">
+      <header className="flex flex-wrap items-center gap-3 border-b border-line bg-panel/70 px-4 py-3 backdrop-blur sm:px-8">
+        <div className="min-w-0 flex-1">
+          <h1 className="font-semibold">{agent.name}{agent.kind === "custom" && <span className="ml-2 rounded-md bg-panel-2 px-1.5 py-0.5 align-middle text-[11px] font-medium text-muted">v{agent.version}</span>}</h1>
+          <p className="truncate text-xs text-muted">{agent.description}</p>
+        </div>
+        <label htmlFor="agent-pick" className="sr-only">Agent</label>
+        <select id="agent-pick" value={agent.id} onChange={(e) => { window.location.hash = `#/chat/${e.target.value}`; }}
+          className="rounded-xl border border-line bg-panel px-3 py-2 text-sm font-medium outline-none focus:border-brand">
+          {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </select>
+      </header>
+      <Conversation key={agent.id} agent={agent} onChange={onChange} />
+    </div>
+  );
+}
+
+/** A live conversation with one agent. `draft` talks to the unpublished draft (builder test chat). */
+export function Conversation({ agent, draft = false, onChange }: { agent: Pick<AgentInfo, "id" | "name" | "examples">; draft?: boolean; onChange: () => void }) {
   const [turns, setTurns] = useState<Turn[]>([]);
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
   const stops = useRef<(() => void)[]>([]);
 
-  useEffect(() => {
-    setTurns([]);
-    return () => stops.current.forEach((s) => s());
-  }, [agentId]);
+  useEffect(() => () => stops.current.forEach((s) => s()), []);
   useEffect(() => bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" }), [turns]);
 
   const update = (runId: string, fn: (t: Turn) => Turn) => setTurns((ts) => ts.map((t) => (t.runId === runId ? fn(t) : t)));
 
   const send = async (input: string) => {
-    if (!agent || input.trim() === "") return;
+    if (input.trim() === "") return;
     setError(null);
     setText("");
     try {
-      const { runId } = await post<{ runId: string }>(`/api/agents/${agent.id}/runs`, { input });
+      const { runId } = await post<{ runId: string }>(`/api/agents/${agent.id}/runs`, { input, draft });
       setTurns((ts) => [...ts.map((t) => ({ ...t, open: false })), { runId, input, events: [], state: null, open: true }]);
       stops.current.push(followRun(runId,
         (e) => update(runId, (t) => (t.events.some((x) => x.eventId === e.eventId) ? t : { ...t, events: [...t.events, e] })),
@@ -50,28 +68,14 @@ export function ChatPage({ agents, agentId, onChange }: { agents: AgentInfo[]; a
     onChange();
   };
 
-  if (!agent) return null;
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex flex-wrap items-center gap-3 border-b border-line bg-panel/70 px-4 py-3 backdrop-blur sm:px-8">
-        <div className="min-w-0 flex-1">
-          <h1 className="font-semibold">{agent.name}</h1>
-          <p className="truncate text-xs text-muted">{agent.description}</p>
-        </div>
-        <div role="tablist" className="flex rounded-xl bg-panel-2 p-1">
-          {agents.map((a) => (
-            <a key={a.id} role="tab" aria-selected={a.id === agent.id} href={`#/chat/${a.id}`}
-              className={cx("rounded-lg px-3 py-1.5 text-sm font-medium transition", a.id === agent.id ? "bg-panel text-ink shadow-sm" : "text-muted hover:text-ink")}>{a.name}</a>
-          ))}
-        </div>
-      </header>
-
+    <>
       <div className="scroll-thin flex-1 overflow-y-auto px-4 py-6 sm:px-8">
         <div className="mx-auto max-w-3xl space-y-6">
           {turns.length === 0 && (
             <div className="py-10 text-center">
               <span className="mx-auto mb-3 grid h-11 w-11 place-items-center rounded-2xl bg-brand/10 text-brand"><Sparkles size={20} /></span>
-              <p className="font-medium">Ask {agent.name} something</p>
+              <p className="font-medium">{draft ? `Test ${agent.name} before publishing` : `Ask ${agent.name} something`}</p>
               <p className="mt-1 text-sm text-muted">Every step it takes shows up live below its answer.</p>
               <div className="mt-5 flex flex-wrap justify-center gap-2">
                 {agent.examples.map((ex) => (
@@ -129,6 +133,6 @@ export function ChatPage({ agents, agentId, onChange }: { agents: AgentInfo[]; a
         </div>
         {error && <p role="alert" className="mx-auto mt-2 max-w-3xl text-sm text-rose-600 dark:text-rose-300">{error}</p>}
       </form>
-    </div>
+    </>
   );
 }

@@ -20,6 +20,18 @@ loop. Anything that restarts a container is explained first and left to the owne
 | 6 | **Versions & rollback**: version list with publish notes; one-click rollback | Test + UI: roll back and confirm the older behaviour |
 | 7 | **Keys & deploy**: API keys stored on the server only (root-only env file); rebuild the console container; verify on https://agent-console.higher-institute.tech | Report from the VPS: providers configured, builder works end to end |
 
+## Status
+
+| # | Status | Evidence |
+| --- | --- | --- |
+| 1 | ✅ Done | `test/builder.test.ts` › stage 1 (mock OpenAI-compatible server, real HTTP round trip) |
+| 2 | ✅ Done | stage 2 + 6 tests; draft runs isolated as `<id>.draft` |
+| 3 | ✅ Done | stage 3 tests: threshold approval, v1 resumes after v2 publish, private address blocked |
+| 4 | ✅ Done | Playwright walkthrough: create → validate → tools → knowledge → test chat → publish → v2 → rollback → Chat → Runs; phone width no overflow |
+| 5 | ✅ Done | stage 5 test: pasted text + uploaded PDF, cited answer; PDF upload verified in the production container |
+| 6 | ✅ Done | tests + walkthrough |
+| 7 | 🟡 Ready | `deploy/set-key.sh` + step `update-console`; waiting for the owner to choose when to recreate the container |
+
 ## Spec (what an agent is)
 
 ```jsonc

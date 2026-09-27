@@ -1,9 +1,9 @@
 import { ArrowLeft, History, ScrollText } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api, type AgentInfo, type RunDetail, type RunSummary } from "../api";
-import { Card, Empty, StatusBadge, Timeline, ago, money, outputText } from "../ui";
+import { Card, Empty, agentName, StatusBadge, Timeline, ago, money, outputText } from "../ui";
 
-const name = (agents: AgentInfo[], id: string) => agents.find((a) => a.id === id)?.name ?? id;
+const name = (agents: AgentInfo[], id: string) => agentName(agents, id);
 
 export function RunsPage({ agents }: { agents: AgentInfo[] }) {
   const [runs, setRuns] = useState<RunSummary[] | null>(null);

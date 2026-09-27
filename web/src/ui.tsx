@@ -119,3 +119,11 @@ export function Empty({ icon, title, children }: { icon: ReactNode; title: strin
     </div>
   );
 }
+
+/** Display name for a run's agent; builder test runs use "<id>.draft". */
+export function agentName(agents: { id: string; name: string }[], id: string): string {
+  const draft = id.endsWith(".draft");
+  const base = draft ? id.slice(0, -6) : id;
+  const name = agents.find((a) => a.id === base)?.name ?? base;
+  return draft ? `${name} (test)` : name;
+}
