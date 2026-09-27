@@ -47,6 +47,31 @@ function parseArgs(raw: string): unknown {
   }
 }
 
+/**
+ * Turn raw provider errors ("gemini: HTTP 404 [{...json...}]") into one readable line
+ * with a hint on what to do.
+ */
+export function friendlyError(message: string): string {
+  const m = /^([\w-]+): HTTP (\d{3}) ([\s\S]*)$/.exec(message);
+  if (m === null) return message;
+  const [, provider, status, body] = m as unknown as [string, string, string, string];
+  let detail = body.trim();
+  try {
+    const parsed = JSON.parse(detail) as unknown;
+    const first = (Array.isArray(parsed) ? parsed[0] : parsed) as { error?: { message?: unknown } | string; message?: unknown } | undefined;
+    const e = first?.error;
+    const text = typeof e === "string" ? e : typeof e?.message === "string" ? e.message : typeof first?.message === "string" ? first.message : undefined;
+    if (text !== undefined) detail = text;
+  } catch { /* not JSON: keep the text */ }
+  detail = detail.replace(/\s+/g, " ").slice(0, 300);
+  const hint =
+    status === "401" || status === "403" ? " Check the API key in Settings." :
+    status === "404" ? " Pick another model in the builder (Settings → Test lists the models your key can use)." :
+    status === "429" ? " The provider's rate limit or quota was reached; wait a moment or check your plan." :
+    status.startsWith("5") ? " The provider had a problem; try again shortly." : "";
+  return `${provider} (HTTP ${status}): ${detail}${hint}`;
+}
+
 /** What the UI needs about a run, without internal message history. */
 export function summarize(state: AgentState) {
   const firstUser = state.messages.find((m) => m.role === "user")?.content;
@@ -56,7 +81,7 @@ export function summarize(state: AgentState) {
     status: state.status,
     input: typeof firstUser === "string" ? firstUser : typeof state.input === "string" ? state.input : JSON.stringify(state.input),
     output: state.output ?? null,
-    error: state.error === undefined ? null : { code: state.error.code, message: state.error.message },
+    error: state.error === undefined ? null : { code: state.error.code, message: friendlyError(state.error.message) },
     usage: state.usage,
     createdAt: state.createdAt,
     updatedAt: state.updatedAt,
@@ -112,7 +137,7 @@ export async function createApp(options: AppOptions) {
       .then(async () => {
         const state = await db.runs.load(runId);
         if (state !== undefined && ["FAILED", "TIMED_OUT", "CANCELLED"].includes(state.status)) {
-          log.warn("run", `${agentId}: ${state.error?.message ?? state.status}`, { runId, status: state.status, code: state.error?.code, agentVersion: state.agentVersion });
+          log.warn("run", `${agentId}: ${state.error ? friendlyError(state.error.message) : state.status}`, { runId, status: state.status, code: state.error?.code, agentVersion: state.agentVersion, raw: state.error?.message });
         }
       })
       .catch((error: unknown) => log.error("run", `${agentId}: the run crashed: ${error instanceof Error ? error.message : String(error)}`, { runId, ...errorDetail(error) }));
@@ -293,7 +318,7 @@ export async function createApp(options: AppOptions) {
         ],
       });
       const after = await db.runs.load(result.runId);
-      if (after !== undefined && ["FAILED", "TIMED_OUT", "CANCELLED"].includes(after.status)) log.warn("run", `${after.agentId}: ${after.error?.message ?? after.status} (after approval)`, { runId, status: after.status, code: after.error?.code });
+      if (after !== undefined && ["FAILED", "TIMED_OUT", "CANCELLED"].includes(after.status)) log.warn("run", `${after.agentId}: ${after.error ? friendlyError(after.error.message) : after.status} (after approval)`, { runId, status: after.status, code: after.error?.code });
       return c.json(after === undefined ? { status: result.status } : summarize(after));
     } catch (error) {
       log.warn("run", `Approval on ${runId} failed: ${error instanceof Error ? error.message : String(error)}`, errorDetail(error));

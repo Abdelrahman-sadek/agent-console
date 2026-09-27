@@ -43,6 +43,24 @@ function Section({ icon, title, subtitle, children }: { icon: ReactNode; title: 
 
 const num = (v: string, fallback: number) => (v.trim() === "" || Number.isNaN(Number(v)) ? fallback : Number(v));
 
+/** Models found by Settings → Test, plus "Other" for typing any id. */
+function ModelPicker({ value, models, placeholder, onChange }: { value: string; models: { id: string; label: string }[]; placeholder?: string; onChange: (id: string) => void }) {
+  const known = models.some((m) => m.id === value);
+  const [other, setOther] = useState(!known && value !== "");
+  return (
+    <div className="space-y-2">
+      <select id="f-model" className={inputCls} value={other ? "__other" : value}
+        onChange={(e) => { if (e.target.value === "__other") { setOther(true); } else { setOther(false); onChange(e.target.value); } }}>
+        {!known && !other && <option value={value}>{value ? `${value} (not in your list)` : "Choose a model"}</option>}
+        {models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+        <option value="__other">Other (type a model id)…</option>
+      </select>
+      {other && <input aria-label="Model id" className={cx(inputCls, "font-mono")} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />}
+      {value && !known && <p className="text-xs text-amber-700 dark:text-amber-300">This model was not in the list your key returned; it may not work.</p>}
+    </div>
+  );
+}
+
 // ------------------------------------------------------------------ tools
 
 function toolTitle(t: ToolSpec, catalog: CatalogItem[]) {
@@ -322,12 +340,10 @@ export function BuilderPage({ id, onPublished }: { id: string; onPublished: () =
                 </select>
               </Field>
               <Field label="Model" id="f-model" error={err("model.modelId")}>
-                {provider?.customModel ? (
-                  <>
-                    <input id="f-model" list="f-model-list" className={cx(inputCls, "font-mono")} value={spec.model.modelId} placeholder={provider.modelPlaceholder} onChange={(e) => set({ ...spec, model: { ...spec.model, modelId: e.target.value } })} />
-                    <datalist id="f-model-list">{provider.models.map((m) => <option key={m.id} value={m.id} />)}</datalist>
-                  </>
-                ) : (
+                {provider?.customModel && provider.models.length > 0 ? (
+                  <ModelPicker value={spec.model.modelId} models={provider.models} placeholder={provider.modelPlaceholder} onChange={(modelId) => set({ ...spec, model: { ...spec.model, modelId } })} />
+                ) : provider?.customModel ? (
+                  <input id="f-model" className={cx(inputCls, "font-mono")} value={spec.model.modelId} placeholder={provider.modelPlaceholder} onChange={(e) => set({ ...spec, model: { ...spec.model, modelId: e.target.value } })} />                ) : (
                   <select id="f-model" className={inputCls} value={spec.model.modelId} onChange={(e) => set({ ...spec, model: { ...spec.model, modelId: e.target.value } })}>
                     {provider?.models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
                   </select>

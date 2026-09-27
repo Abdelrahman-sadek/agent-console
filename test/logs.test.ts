@@ -54,3 +54,11 @@ describe("issue log (debugger)", () => {
     expect(issues[0].detail.runId).toBe(runId);
   });
 });
+
+import { friendlyError } from "../server/app.js";
+test("provider errors are shown as one readable line with a hint", () => {
+  const raw = `gemini: HTTP 404 [{\n  "error": {\n    "code": 404,\n    "message": "This model models/gemini-2.5-flash is no longer available to new users.",\n    "status": "NOT_FOUND"\n  }\n}\n]`;
+  expect(friendlyError(raw)).toBe("gemini (HTTP 404): This model models/gemini-2.5-flash is no longer available to new users. Pick another model in the builder (Settings → Test lists the models your key can use).");
+  expect(friendlyError('openai: HTTP 401 {"error":{"message":"Incorrect API key provided"}}')).toContain("Check the API key in Settings.");
+  expect(friendlyError("ollama: network error")).toBe("ollama: network error");
+});

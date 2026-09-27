@@ -71,7 +71,7 @@ export const PRESETS: readonly Preset[] = [
   },
   { id: "openai", label: "OpenAI", kind: "openai-compatible", defaultBaseURL: "https://api.openai.com/v1", needsKey: true, keyVar: "OPENAI_API_KEY", baseVar: "OPENAI_BASE_URL", keyUrl: "https://platform.openai.com/api-keys", placeholder: "e.g. gpt-4.1-mini" },
   { id: "openrouter", label: "OpenRouter (many models, one key)", kind: "openai-compatible", defaultBaseURL: "https://openrouter.ai/api/v1", needsKey: true, keyVar: "OPENROUTER_API_KEY", baseVar: "OPENROUTER_BASE_URL", keyUrl: "https://openrouter.ai/keys", placeholder: "e.g. anthropic/claude-sonnet-5" },
-  { id: "gemini", label: "Google Gemini", kind: "openai-compatible", defaultBaseURL: "https://generativelanguage.googleapis.com/v1beta/openai", needsKey: true, keyVar: "GEMINI_API_KEY", baseVar: "GEMINI_BASE_URL", keyUrl: "https://aistudio.google.com/apikey", placeholder: "e.g. gemini-2.5-flash" },
+  { id: "gemini", label: "Google Gemini", kind: "openai-compatible", defaultBaseURL: "https://generativelanguage.googleapis.com/v1beta/openai", needsKey: true, keyVar: "GEMINI_API_KEY", baseVar: "GEMINI_BASE_URL", keyUrl: "https://aistudio.google.com/apikey", placeholder: "press Test in Settings to list models" },
   { id: "groq", label: "Groq", kind: "openai-compatible", defaultBaseURL: "https://api.groq.com/openai/v1", needsKey: true, keyVar: "GROQ_API_KEY", baseVar: "GROQ_BASE_URL", keyUrl: "https://console.groq.com/keys", placeholder: "e.g. llama-3.3-70b-versatile" },
   { id: "mistral", label: "Mistral", kind: "openai-compatible", defaultBaseURL: "https://api.mistral.ai/v1", needsKey: true, keyVar: "MISTRAL_API_KEY", baseVar: "MISTRAL_BASE_URL", keyUrl: "https://console.mistral.ai/api-keys", placeholder: "e.g. mistral-small-latest" },
   { id: "deepseek", label: "DeepSeek", kind: "openai-compatible", defaultBaseURL: "https://api.deepseek.com/v1", needsKey: true, keyVar: "DEEPSEEK_API_KEY", baseVar: "DEEPSEEK_BASE_URL", keyUrl: "https://platform.deepseek.com/api_keys", placeholder: "e.g. deepseek-chat" },
@@ -196,7 +196,9 @@ export async function testProvider(kind: ProviderKind, apiKey: string | undefine
     if (!res.ok) return { ok: false, message: `The provider answered HTTP ${res.status}.`, models: [] };
     const body = (await res.json().catch(() => ({}))) as { data?: { id?: unknown }[]; models?: { name?: unknown }[] };
     const models = [...(body.data ?? []).map((m) => m.id), ...(body.models ?? []).map((m) => m.name)]
-      .filter((m): m is string => typeof m === "string").map((m) => m.replace(/^models\//, "")).slice(0, 200);
+      .filter((m): m is string => typeof m === "string").map((m) => m.replace(/^models\//, ""))
+      .filter((m) => !/embed|imagen|veo|tts|aqa|whisper|dall-e|moderation|transcribe|audio|image-generation/i.test(m)) // chat models only
+      .slice(0, 200);
     return { ok: true, message: models.length ? `Connected · ${models.length} models available.` : "Connected.", models };
   } catch (error) {
     const reason = error instanceof Error && error.name === "TimeoutError" ? "timed out after 10 s" : "could not be reached";
