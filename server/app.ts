@@ -105,7 +105,7 @@ export async function createApp(options: AppOptions) {
   const secrets = new ProviderSecrets(db.db, options.masterKey ?? loadMasterKey(":memory:", {}));
   const build = (): LiveProviders => {
     const { providers, info } = loadProviders(env, secrets.all());
-    return { factory: new AgentFactory(db, new Set(providers.map((p) => p.id)), providers), providerInfo: info };
+    return { factory: new AgentFactory(db, new Set(providers.map((p) => p.id)), providers, Number(env.RUN_TIMEOUT_MS ?? 120_000)), providerInfo: info };
   };
   const live: LiveProviders = build();
   const reload = () => Object.assign(live, build());
@@ -277,8 +277,13 @@ export async function createApp(options: AppOptions) {
           last = event.sequence;
           await stream.writeSSE({ event: "agent-event", id: String(event.sequence), data: JSON.stringify(event) });
           if (event.type.startsWith("AGENT_") && TERMINAL.has(event.type.replace("AGENT_", ""))) {
-            const state = await db.runs.load(runId);
-            if (state !== undefined && TERMINAL.has(state.status)) await stream.writeSSE({ event: "run-state", data: JSON.stringify(summarize(state)) });
+            // The "finished" event can arrive a moment before the run is saved as finished: wait for it.
+            let state = await db.runs.load(runId);
+            for (let i = 0; i < 30 && (state === undefined || !TERMINAL.has(state.status)); i++) {
+              await new Promise((ok) => setTimeout(ok, 100));
+              state = await db.runs.load(runId);
+            }
+            if (state !== undefined) await stream.writeSSE({ event: "run-state", data: JSON.stringify(summarize(state)) });
           }
         }
       } finally {

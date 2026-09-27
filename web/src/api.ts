@@ -174,6 +174,7 @@ export function followRun(runId: string, onEvent: (e: AgentEvent) => void, onSta
     stopped = true;
     source.close();
     clearTimeout(poll);
+    clearInterval(backstop);
     onState(s);
   };
   const pollRun = async () => {
@@ -185,6 +186,11 @@ export function followRun(runId: string, onEvent: (e: AgentEvent) => void, onSta
     } catch { /* try again */ }
     poll = setTimeout(() => void pollRun(), 1_500);
   };
+  // Backstop: even if the stream stays open but silent, check the run every 5 s.
+  const backstop = setInterval(() => {
+    if (stopped) return;
+    api<RunDetail>(`/api/runs/${runId}`).then((d) => { if (!["CREATED", "RUNNING"].includes(d.status)) { d.events.forEach(onEvent); settle(d); } }).catch(() => {});
+  }, 5_000);
   source.addEventListener("agent-event", (m) => onEvent(JSON.parse((m as MessageEvent<string>).data) as AgentEvent));
   source.addEventListener("run-state", (m) => settle(JSON.parse((m as MessageEvent<string>).data) as RunSummary));
   source.onerror = () => {
@@ -197,6 +203,7 @@ export function followRun(runId: string, onEvent: (e: AgentEvent) => void, onSta
     stopped = true;
     source.close();
     clearTimeout(poll);
+    clearInterval(backstop);
   };
 }
 

@@ -20,7 +20,8 @@ export class AgentFactory {
   private readonly kbs = new Map<string, { rev: string; kb: KnowledgeBase }>();
   private readonly refunds = new Map<string, string>();
 
-  constructor(private readonly db: Database, readonly providerIds: ReadonlySet<string>, providers: LLMProvider[]) {
+  /** `timeoutMs` stops a run that hangs (e.g. a provider that never answers). */
+  constructor(private readonly db: Database, readonly providerIds: ReadonlySet<string>, providers: LLMProvider[], private readonly timeoutMs = 120_000) {
     this.runtime = createRuntime({ providers, tools: new ToolRuntime({ audit: db.audit }), stateStore: db.runs, events: db.events });
   }
 
@@ -76,7 +77,7 @@ export class AgentFactory {
       permissions: ["*"],
       guardrails,
       ...(kb === undefined ? {} : { context: [kb.asContextProvider({ k: spec.knowledge.k, minScore: 0.1 })] }),
-      limits: { maxSteps: spec.limits.maxSteps, maxToolCalls: spec.limits.maxToolCalls, maxCost: spec.limits.maxCost },
+      limits: { maxSteps: spec.limits.maxSteps, maxToolCalls: spec.limits.maxToolCalls, maxCost: spec.limits.maxCost, timeoutMs: this.timeoutMs },
       runtime: this.runtime,
     });
     // Keep only the newest draft per agent in the cache.
