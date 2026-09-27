@@ -28,6 +28,8 @@
     "@anthropic-ai/sdk": "link:./vendor/agents-framework/packages/provider-anthropic/node_modules/@anthropic-ai/sdk",
     "@hono/node-server": "^1.14.0",
     "hono": "^4.7.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "tsx": "^4.19.0",
     "unpdf": "1.8.1",
     "zod": "link:./vendor/agents-framework/node_modules/zod"

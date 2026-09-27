@@ -1,7 +1,7 @@
 import { ArrowUp, BookOpen, ChevronDown, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, followRun, post, type AgentEvent, type AgentInfo, type RunDetail, type RunSummary } from "../api";
-import { Card, StatusBadge, Timeline, cx, money, outputText } from "../ui";
+import { Answer, Card, StatusBadge, Timeline, cx, money, outputText } from "../ui";
 import { ApprovalCard } from "./Approvals";
 
 interface Turn {
@@ -101,7 +101,7 @@ export function Conversation({ agent, draft = false, onChange }: { agent: Pick<A
                       {t.state && <span className="text-xs text-muted tabular-nums">{t.state.usage.totalTokens} tokens · {t.state.usage.toolCalls} tool calls · {money(t.state.usage.estimatedCostUsd)}</span>}
                       <a href={`#/runs/${t.runId}`} className="ml-auto text-xs text-brand hover:underline">Details</a>
                     </div>
-                    {t.state?.output != null && <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{outputText(t.state.output)}</p>}
+                    {t.state?.output != null && <Answer text={outputText(t.state.output)} />}
                     {t.state?.error && <p className="rounded-xl bg-rose-500/10 px-3 py-2 text-sm text-rose-700 dark:text-rose-300">{t.state.error.message}</p>}
                     {t.state && t.state.sources.length > 0 && (
                       <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted"><BookOpen size={13} />Sources:

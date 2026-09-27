@@ -1,7 +1,7 @@
 import { ArrowLeft, History, ScrollText } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api, type AgentInfo, type RunDetail, type RunSummary } from "../api";
-import { Card, Empty, agentName, StatusBadge, Timeline, ago, money, outputText } from "../ui";
+import { Answer, Card, Empty, agentName, StatusBadge, Timeline, ago, money, outputText } from "../ui";
 
 const name = (agents: AgentInfo[], id: string) => agentName(agents, id);
 
@@ -81,7 +81,7 @@ export function RunDetailPage({ runId, agents }: { runId: string; agents: AgentI
           <Card className="p-5">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted">Message</p>
             <p className="mt-1">{run.input}</p>
-            {run.output != null && <><p className="mt-4 text-xs font-semibold uppercase tracking-wide text-muted">Answer</p><p className="mt-1 whitespace-pre-wrap">{outputText(run.output)}</p></>}
+            {run.output != null && <><p className="mt-4 text-xs font-semibold uppercase tracking-wide text-muted">Answer</p><Answer text={outputText(run.output)} className="mt-1" /></>}
             {run.error && <p className="mt-4 rounded-xl bg-rose-500/10 px-3 py-2 text-sm text-rose-700 dark:text-rose-300">{run.error.code}: {run.error.message}</p>}
           </Card>
           <Card className="p-5">

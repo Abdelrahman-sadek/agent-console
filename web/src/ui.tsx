@@ -1,5 +1,7 @@
 import { Bot, Brain, CheckCircle2, CircleAlert, CircleDot, Clock, Hand, Library, Loader2, ShieldAlert, Wrench, XCircle } from "lucide-react";
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { report, type AgentEvent } from "./api";
 
 export const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
@@ -151,4 +153,16 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
       </div>
     );
   }
+}
+
+/**
+ * Model answers are Markdown (**bold**, lists, tables, code). Rendered safely: raw HTML in
+ * the answer is shown as text, never run, and links open in a new tab.
+ */
+export function Answer({ text, className }: { text: string; className?: string }) {
+  return (
+    <div className={cx("md text-[15px] leading-relaxed", className)} dir="auto">
+      <Markdown remarkPlugins={[remarkGfm]} components={{ a: ({ node: _n, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" /> }}>{text}</Markdown>
+    </div>
+  );
 }
