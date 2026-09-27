@@ -36,4 +36,16 @@ end
 section "Agent Console (should be unaffected)"
 docker inspect agent-console --format 'status={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{end}}' 2>&1
 end
+
+section "Which site answers for names that have no site of their own (default server)?"
+for h in localhost 145-14-158-100.sslip.io 145.14.158.100; do
+  code=$(curl -sk -o /tmp/pdc.body -w '%{http_code}' --max-time 10 --resolve "$h:443:127.0.0.1" "https://$h/api/v1/health" || echo 000)
+  printf '   %-26s /api/v1/health → %s  body: %s\n' "$h" "$code" "$(head -c 120 /tmp/pdc.body | tr '\n' ' ')"
+done
+rm -f /tmp/pdc.body
+echo; echo "first HTTPS server block nginx loads (= default when no default_server is set):"
+docker exec "$NGX" nginx -T 2>/dev/null | awk '/^# configuration file/{f=$4} /listen[^;]*443/{print "   " f; exit}'
+echo "explicit default_server directives: $(docker exec "$NGX" nginx -T 2>/dev/null | grep -c default_server)"
+docker exec "$NGX" nginx -T 2>/dev/null | grep -n default_server | head -5 | sed 's/^/   /'
+end
 [ "$diff" -eq 0 ]
