@@ -13,6 +13,7 @@ import { AgentFactory } from "./factory.js";
 import { loadProviders, type ProviderInfo } from "./providers.js";
 import { ProviderSecrets, loadMasterKey } from "./secrets.js";
 import { registerProviderSettings } from "./settings.js";
+import { stripThoughts, turnsFromRuns } from "./conversation.js";
 import { IssueLog, errorDetail, type Level, type Source } from "./logger.js";
 
 export interface AppOptions {
@@ -85,7 +86,7 @@ export function summarize(state: AgentState) {
     usage: state.usage,
     createdAt: state.createdAt,
     updatedAt: state.updatedAt,
-    sources: state.contextItems.map((i) => ({ title: i.source?.title ?? i.id, score: i.score ?? null })),
+    sources: state.contextItems.filter((i) => i.kind === "knowledge").map((i) => ({ title: i.source?.title ?? i.id, score: i.score ?? null })),
     pendingApprovals: state.pendingApprovals.map((p) => ({
       approvalId: p.approval.approvalId,
       toolName: p.approval.toolName,
@@ -136,6 +137,10 @@ export async function createApp(options: AppOptions) {
     started
       .then(async () => {
         const state = await db.runs.load(runId);
+        if (state?.status === "COMPLETED" && stripThoughts(typeof state.output === "string" ? state.output : JSON.stringify(state.output ?? "")) === "") {
+          const last = [...state.messages].reverse().find((m) => m.role === "assistant");
+          log.warn("run", `${agentId}: the model finished without any answer text`, { runId, rawOutput: String(state.output ?? "").slice(0, 1_500), lastAssistant: JSON.stringify(last ?? null).slice(0, 1_500) });
+        }
         if (state !== undefined && ["FAILED", "TIMED_OUT", "CANCELLED"].includes(state.status)) {
           log.warn("run", `${agentId}: ${state.error ? friendlyError(state.error.message) : state.status}`, { runId, status: state.status, code: state.error?.code, agentVersion: state.agentVersion, raw: state.error?.message });
         }
@@ -220,7 +225,9 @@ export async function createApp(options: AppOptions) {
   registerProviderSettings(app, { secrets, env, live, reload, log });
 
   app.post("/api/agents/:agentId/runs", async (c) => {
-    const body = z.object({ input: z.string().trim().min(1).max(2_000), draft: z.boolean().optional() }).safeParse(await c.req.json().catch(() => ({})));
+    const body = z
+      .object({ input: z.string().trim().min(1).max(2_000), draft: z.boolean().optional(), conversation: z.array(z.string().regex(/^run_[\w-]{1,80}$/)).max(20).optional() })
+      .safeParse(await c.req.json().catch(() => ({})));
     if (!body.success) return c.json({ error: "Message must be 1–2000 characters." }, 400);
     let agent: Agent<unknown> | undefined;
     try {
@@ -231,8 +238,10 @@ export async function createApp(options: AppOptions) {
     }
     if (agent === undefined) return c.json({ error: "Unknown or unpublished agent." }, 404);
     const runId = `run_${randomUUID()}`;
+    // Earlier turns of this chat, rebuilt from its finished runs (same agent only).
+    const history = turnsFromRuns(await Promise.all((body.data.conversation ?? []).map((id) => db.runs.load(id))), c.req.param("agentId"));
     // Runs continue in the background; the UI follows them over the event stream.
-    void watchRun(c.req.param("agentId"), runId, agent.run({ input: body.data.input, user: operator, runId }));
+    void watchRun(c.req.param("agentId"), runId, agent.run({ input: body.data.input, user: operator, runId, ...(history.length ? { metadata: { history } } : {}) }));
     return c.json({ runId }, 202);
   });
 

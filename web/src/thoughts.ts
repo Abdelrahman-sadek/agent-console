@@ -18,3 +18,6 @@ export function splitThoughts(text: string): Part[] {
   if (last < text.length) parts.push({ kind: "answer", text: text.slice(last) });
   return parts.map((p) => ({ ...p, text: p.text.trim() })).filter((p) => p.text !== "");
 }
+
+/** True when the answer has visible text besides reasoning blocks. */
+export const hasAnswerText = (text: string) => splitThoughts(text).some((p) => p.kind === "answer");

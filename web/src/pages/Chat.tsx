@@ -2,6 +2,7 @@ import { ArrowUp, BookOpen, ChevronDown, Sparkles } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api, followRun, post, type AgentEvent, type AgentInfo, type RunDetail, type RunSummary } from "../api";
 import { Answer, Card, StatusBadge, Timeline, cx, money, outputText } from "../ui";
+import { hasAnswerText } from "../thoughts";
 import { ApprovalCard } from "./Approvals";
 
 interface Turn {
@@ -14,6 +15,7 @@ interface Turn {
 
 export function ChatPage({ agents, agentId, onChange }: { agents: AgentInfo[]; agentId: string; onChange: () => void }) {
   const agent = agents.find((a) => a.id === agentId) ?? agents[0];
+  const [session, setSession] = useState(0);
   if (!agent) return null;
   return (
     <div className="flex h-full flex-col">
@@ -22,13 +24,14 @@ export function ChatPage({ agents, agentId, onChange }: { agents: AgentInfo[]; a
           <h1 className="font-semibold">{agent.name}{agent.kind === "custom" && <span className="ml-2 rounded-md bg-panel-2 px-1.5 py-0.5 align-middle text-[11px] font-medium text-muted">v{agent.version}</span>}</h1>
           <p className="truncate text-xs text-muted">{agent.description}</p>
         </div>
+        <button onClick={() => setSession((n) => n + 1)} className="rounded-xl px-3 py-2 text-sm font-medium text-muted ring-1 ring-inset ring-line hover:bg-panel-2 hover:text-ink">New chat</button>
         <label htmlFor="agent-pick" className="sr-only">Agent</label>
         <select id="agent-pick" value={agent.id} onChange={(e) => { window.location.hash = `#/chat/${e.target.value}`; }}
           className="rounded-xl border border-line bg-panel px-3 py-2 text-sm font-medium outline-none focus:border-brand">
           {agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
         </select>
       </header>
-      <Conversation key={agent.id} agent={agent} onChange={onChange} />
+      <Conversation key={`${agent.id}-${session}`} agent={agent} onChange={onChange} />
     </div>
   );
 }
@@ -54,7 +57,9 @@ export function Conversation({ agent, draft = false, onChange }: { agent: Pick<A
     setError(null);
     setText("");
     try {
-      const { runId } = await post<{ runId: string }>(`/api/agents/${agent.id}/runs`, { input, draft });
+      // Earlier finished turns, so follow-ups ("egypt") are understood in context.
+      const conversation = turns.filter((t) => t.state?.status === "COMPLETED").map((t) => t.runId).slice(-8);
+      const { runId } = await post<{ runId: string }>(`/api/agents/${agent.id}/runs`, { input, draft, conversation });
       setTurns((ts) => [...ts.map((t) => ({ ...t, open: false })), { runId, input, events: [], state: null, open: true }]);
       stops.current.push(followRun(runId,
         (e) => update(runId, (t) => (t.events.some((x) => x.eventId === e.eventId) ? t : { ...t, events: [...t.events, e] })),
@@ -102,6 +107,9 @@ export function Conversation({ agent, draft = false, onChange }: { agent: Pick<A
                       <a href={`#/runs/${t.runId}`} className="ml-auto text-xs text-brand hover:underline">Details</a>
                     </div>
                     {t.state?.output != null && <Answer text={outputText(t.state.output)} />}
+                    {t.state?.status === "COMPLETED" && !hasAnswerText(outputText(t.state.output)) && (
+                      <p className="rounded-xl bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">The model finished without any answer text. Try rephrasing, or pick another model. Details are in <a href="#/logs" className="underline">Logs</a>.</p>
+                    )}
                     {t.state?.error && <p className="rounded-xl bg-rose-500/10 px-3 py-2 text-sm text-rose-700 dark:text-rose-300">{t.state.error.message}</p>}
                     {t.state && t.state.sources.length > 0 && (
                       <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted"><BookOpen size={13} />Sources:

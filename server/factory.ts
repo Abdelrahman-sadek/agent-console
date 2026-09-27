@@ -3,6 +3,7 @@ import { createKnowledgeBase, hashingEmbedder, type KnowledgeBase } from "@agent
 import { piiGuardrail, promptInjectionGuardrail } from "@agent-farmework/security";
 import { ToolRuntime } from "@agent-farmework/tools";
 import { buildTools } from "./catalog.js";
+import { conversationProvider } from "./conversation.js";
 import type { Database } from "./db.js";
 import type { AgentSpec } from "./spec.js";
 
@@ -76,7 +77,7 @@ export class AgentFactory {
       tools,
       permissions: ["*"],
       guardrails,
-      ...(kb === undefined ? {} : { context: [kb.asContextProvider({ k: spec.knowledge.k, minScore: 0.1 })] }),
+      context: [conversationProvider(), ...(kb === undefined ? [] : [kb.asContextProvider({ k: spec.knowledge.k, minScore: 0.1 })])],
       limits: { maxSteps: spec.limits.maxSteps, maxToolCalls: spec.limits.maxToolCalls, maxCost: spec.limits.maxCost, timeoutMs: this.timeoutMs },
       runtime: this.runtime,
     });
