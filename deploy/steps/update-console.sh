@@ -20,7 +20,13 @@ echo "health endpoint: $(curl -s --max-time 5 http://127.0.0.1:3300/api/health)"
 echo "== model providers"
 jar="$(mktemp)"; pw="$(cat "$BASE/admin-password" 2>/dev/null)"
 curl -s -c "$jar" -H 'content-type: application/json' --data "$(printf '{"password":"%s"}' "$pw")" http://127.0.0.1:3300/api/login >/dev/null
-curl -s -b "$jar" http://127.0.0.1:3300/api/builder/models | python3 -c 'import json,sys; [print(f"  {p[\"id\"]:<11} {\"configured\" if p[\"configured\"] else \"not configured\"}") for p in json.load(sys.stdin)]' 2>/dev/null || echo "  (could not read providers)"
+curl -s -b "$jar" http://127.0.0.1:3300/api/builder/models > "$jar.models"
+python3 - "$jar.models" <<'PY' || echo "  (could not read providers)"
+import json, sys
+for p in json.load(open(sys.argv[1])):
+    print("  %-11s %s" % (p["id"], "configured" if p["configured"] else "not configured"))
+PY
+rm -f "$jar.models"
 echo "== builder API"; curl -s -o /dev/null -w "  /api/builder/catalog -> %{http_code}\n" -b "$jar" http://127.0.0.1:3300/api/builder/catalog
 rm -f "$jar"
 echo "== public"; curl -s -o /dev/null -w "  https://agent-console.higher-institute.tech -> %{http_code}\n" --max-time 10 https://agent-console.higher-institute.tech/

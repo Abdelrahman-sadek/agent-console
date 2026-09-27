@@ -30,7 +30,7 @@ loop. Anything that restarts a container is explained first and left to the owne
 | 4 | ✅ Done | Playwright walkthrough: create → validate → tools → knowledge → test chat → publish → v2 → rollback → Chat → Runs; phone width no overflow |
 | 5 | ✅ Done | stage 5 test: pasted text + uploaded PDF, cited answer; PDF upload verified in the production container |
 | 6 | ✅ Done | tests + walkthrough |
-| 7 | 🟡 Ready | `deploy/set-key.sh` + step `update-console`; waiting for the owner to choose when to recreate the container |
+| 7 | ✅ Deployed | VPS report 2026-09-27: container healthy, builder API 200, public site 200; keys added with `deploy/set-key.sh` when wanted |
 
 ## Spec (what an agent is)
 
