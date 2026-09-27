@@ -46,7 +46,9 @@ STEP_EXIT="$(cat "$LOCAL_REPORTS/.last-exit" 2>/dev/null || echo 1)"
 if [ "${REPORT_DRY_RUN:-0}" = "1" ]; then echo; echo "[vps] Dry run: report saved to $REPORT"; exit 0; fi
 
 mkdir -p "$(dirname "$KEY")"
-if [ ! -f "$KEY" ]; then ssh-keygen -q -t ed25519 -N "" -C "agent-console-vps-reports@$(hostname)" -f "$KEY"; fi
+if [ ! -f "$KEY" ] && ! ssh-keygen -q -t ed25519 -N "" -C "agent-console-vps-reports@$(hostname)" -f "$KEY"; then
+  echo "[vps] ❌ Could not create an SSH key (is ssh-keygen installed?). Report saved locally at $REPORT"; exit 1
+fi
 export GIT_SSH_COMMAND="ssh -i $KEY -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
 OPS="$BASE/reports-repo"
 publish() {

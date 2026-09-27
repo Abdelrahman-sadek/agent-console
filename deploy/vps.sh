@@ -14,12 +14,16 @@ SRC="$BASE/src"
 
 if [ "$(id -u)" -ne 0 ]; then echo "Please run with sudo (it needs to read service and port information)."; exit 1; fi
 
-if ! command -v git >/dev/null 2>&1; then
-  echo "[vps] git is not installed; installing it (needed to fetch scripts and send reports)…"
-  if command -v apt-get >/dev/null; then apt-get update -qq && apt-get install -y -qq git
-  elif command -v dnf >/dev/null; then dnf install -y -q git
-  elif command -v yum >/dev/null; then yum install -y -q git
-  else echo "Install git and run again."; exit 1; fi
+# git fetches the scripts; the ssh client sends reports. Both are small, standard packages.
+need=""
+command -v git >/dev/null 2>&1 || need="$need git"
+command -v ssh-keygen >/dev/null 2>&1 || need="$need ssh"
+if [ -n "$need" ]; then
+  echo "[vps] Installing missing tools:$need"
+  if command -v apt-get >/dev/null; then apt-get update -qq && apt-get install -y -qq $(echo "$need" | sed 's/ssh/openssh-client/')
+  elif command -v dnf >/dev/null; then dnf install -y -q $(echo "$need" | sed 's/ssh/openssh-clients/')
+  elif command -v yum >/dev/null; then yum install -y -q $(echo "$need" | sed 's/ssh/openssh-clients/')
+  else echo "Please install:$need, then run again."; exit 1; fi
 fi
 
 mkdir -p "$BASE"
