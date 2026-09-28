@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { LLMProvider } from "@agent-farmework/core";
+import { LLMError, type LLMProvider } from "@agent-farmework/core";
 import { createRuleProvider } from "@agent-farmework/core/testing";
 import { openAICompatibleProvider } from "@agent-farmework/llm";
 import { anthropicProvider } from "@agent-farmework/provider-anthropic";
@@ -122,6 +122,29 @@ function demoProvider(): LLMProvider {
   );
 }
 
+/**
+ * Some models (seen with Gemini's thinking models) occasionally reply with no text and no
+ * tool call. Ask once more; if it is still empty, fail the run with the finish reason instead
+ * of "completing" with a blank answer.
+ */
+export function guardEmptyReplies(provider: LLMProvider): LLMProvider {
+  return {
+    id: provider.id,
+    capabilities: (modelId) => provider.capabilities(modelId),
+    async generate(request) {
+      let last = await provider.generate(request);
+      if (last.content.trim() !== "" || last.toolCalls.length > 0) return last;
+      last = await provider.generate(request);
+      if (last.content.trim() !== "" || last.toolCalls.length > 0) return last;
+      const why =
+        last.finishReason === "length" ? "it ran out of output tokens (often spent on hidden reasoning)"
+        : last.finishReason === "content_filter" ? "the provider's safety filter blocked the answer"
+        : `finish reason "${last.finishReason}"`;
+      throw new LLMError(`${provider.id}: the model returned an empty answer twice (${why}, ${last.usage.outputTokens} output tokens). Try again, rephrase, or pick another model.`, { retryable: false, metadata: { finishReason: last.finishReason, outputTokens: last.usage.outputTokens } });
+    },
+  };
+}
+
 const hint = (key: string | undefined) => (key ? `…${key.slice(-4)}` : null);
 
 /** The effective settings for one provider: saved in the console first, then server environment. */
@@ -157,9 +180,9 @@ export function loadProviders(env: Env = process.env, saved: Record<string, Save
     if (configured) {
       if (e.kind === "anthropic") {
         const viaEnvOnly = e.source === "server" && !saved[id];
-        providers.push(viaEnvOnly ? anthropicProvider({ id }) : anthropicProvider({ id, client: new Anthropic({ maxRetries: 0, ...(e.apiKey ? { apiKey: e.apiKey } : {}), ...(e.baseURL ? { baseURL: e.baseURL } : {}) }) }));
+        providers.push(guardEmptyReplies(viaEnvOnly ? anthropicProvider({ id }) : anthropicProvider({ id, client: new Anthropic({ maxRetries: 0, ...(e.apiKey ? { apiKey: e.apiKey } : {}), ...(e.baseURL ? { baseURL: e.baseURL } : {}) }) })));
       } else {
-        providers.push(openAICompatibleProvider({ id, baseURL: e.baseURL as string, ...(e.apiKey ? { apiKey: e.apiKey } : {}) }));
+        providers.push(guardEmptyReplies(openAICompatibleProvider({ id, baseURL: e.baseURL as string, ...(e.apiKey ? { apiKey: e.apiKey } : {}) })));
       }
     }
     const found = (saved[id]?.models ?? []).map((m) => ({ id: m, label: m }));

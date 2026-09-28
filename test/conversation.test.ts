@@ -16,7 +16,7 @@ beforeAll(async () => {
       const body = JSON.parse(raw) as { messages: { role: string; content: string }[] };
       seen.push(JSON.stringify(body.messages));
       const last = body.messages.filter((m) => m.role === "user").at(-1)?.content ?? "";
-      const content = last.includes("hello") ? "<thought>greet them</thought>Hi! Which country?" : last.includes("silent") ? "<thought>only thinking</thought>" : `You said ${last}`;
+      const content = last.includes("blank") ? "" : last.includes("hello") ? "<thought>greet them</thought>Hi! Which country?" : last.includes("silent") ? "<thought>only thinking</thought>" : `You said ${last}`;
       res.setHeader("content-type", "application/json");
       res.end(JSON.stringify({ id: "x", model: "m", choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
     });
@@ -83,4 +83,14 @@ test("an answer with only reasoning is recorded as an empty answer", async () =>
   expect(r.status).toBe("COMPLETED");
   await new Promise((ok) => setTimeout(ok, 30));
   expect(log.recent({ source: "run" })[0]?.message).toContain("finished without any answer text");
+});
+
+test("an empty reply is retried once, then fails with a clear reason instead of a blank answer", async () => {
+  const { agent, run } = await setup();
+  const id = await agent("Blank");
+  seen.length = 0;
+  const r = await run(id, "blank please");
+  expect(seen).toHaveLength(2); // asked twice
+  expect(r.status).toBe("FAILED");
+  expect(r.error.message).toMatch(/empty answer twice.*finish reason "stop"/);
 });

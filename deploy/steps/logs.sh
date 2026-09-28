@@ -36,4 +36,4 @@ curl -s -b "$jar" http://127.0.0.1:3300/api/agents | python3 -c '
 import json,sys
 for a in json.load(sys.stdin): print("  %-14s %-30s %s" % (a["id"], a["name"][:30], a.get("model","")))'
 rm -f "$jar" "$jar.r"
-echo; echo "== container errors (last 2h)"; docker logs --since 2h agent-console 2>&1 | grep -iE "error|warn|fail" | grep -v ExperimentalWarning | tail -30
+echo; echo "== container errors (last 2h)"; docker logs --since 2h agent-console 2>&1 | grep -iE "error|warn|fail" | grep -v ExperimentalWarning | tail -30 || true  # nothing found is not a failure
