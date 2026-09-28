@@ -3,6 +3,8 @@ import { htmlToText } from "@agent-farmework/knowledge";
 import type { Hono } from "hono";
 import { z } from "zod";
 import { CATALOG } from "./catalog.js";
+import { TEMPLATES } from "./templates.js";
+import { fetchPageText } from "./webpage.js";
 import type { AgentRow, Database } from "./db.js";
 import type { LiveProviders } from "./app.js";
 import { AgentSpec, blankSpec, toolNameOf, type ApprovalSpec } from "./spec.js";
@@ -66,6 +68,7 @@ export function registerBuilder(app: Hono, deps: { db: Database; live: LiveProvi
 
   app.get("/api/builder/models", (c) => c.json(live.providerInfo));
   app.get("/api/builder/catalog", (c) => c.json(CATALOG));
+  app.get("/api/builder/templates", (c) => c.json(TEMPLATES.map(({ spec: _s, ...t }) => t)));
 
   app.get("/api/builder/agents", (c) =>
     c.json(db.agents.list().map((r) => {
@@ -75,9 +78,14 @@ export function registerBuilder(app: Hono, deps: { db: Database; live: LiveProvi
   );
 
   app.post("/api/builder/agents", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { spec?: unknown };
+    const body = (await c.req.json().catch(() => ({}))) as { spec?: unknown; template?: unknown };
     const { providerId, modelId } = defaultModel();
-    const parsed = body.spec === undefined ? { success: true as const, data: blankSpec(providerId, modelId) } : AgentSpec.safeParse(body.spec);
+    const template = typeof body.template === "string" ? TEMPLATES.find((t) => t.id === body.template) : undefined;
+    if (body.template !== undefined && template === undefined) return c.json({ error: "Unknown template." }, 400);
+    const parsed =
+      template !== undefined ? { success: true as const, data: template.spec({ providerId, modelId }) }
+      : body.spec === undefined ? { success: true as const, data: blankSpec(providerId, modelId) }
+      : AgentSpec.safeParse(body.spec);
     if (!parsed.success) return c.json({ error: "Invalid agent.", issues: issues(parsed.error) }, 400);
     const id = `ag-${randomBytes(4).toString("hex")}`;
     return c.json(detail(db.agents.create(id, parsed.data)), 201);
@@ -143,9 +151,17 @@ export function registerBuilder(app: Hono, deps: { db: Database; live: LiveProvi
         title = (typeof form.title === "string" && form.title.trim()) || file.name;
         text = await extractText(file.name, new Uint8Array(await file.arrayBuffer()));
       } else {
-        const body = z.object({ title: z.string().trim().min(1).max(120), text: z.string().trim().min(1) }).safeParse(await c.req.json().catch(() => ({})));
-        if (!body.success) return c.json({ error: "Give the document a title and some text." }, 400);
-        ({ title, text } = body.data);
+        const json = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+        if (typeof json.url === "string") {
+          // Add a web page as a document (clean text, same safety checks as the Read web page tool).
+          const page = await fetchPageText(json.url, { maxChars: MAX_DOC_CHARS, allowHttpForTests: process.env.READER_ALLOW_PRIVATE_FOR_TESTS === "1" });
+          title = page.title;
+          text = `Source: ${page.url}\n\n${page.text}`;
+        } else {
+          const body = z.object({ title: z.string().trim().min(1).max(120), text: z.string().trim().min(1) }).safeParse(json);
+          if (!body.success) return c.json({ error: "Give the document a title and some text." }, 400);
+          ({ title, text } = body.data);
+        }
       }
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : "Could not read the file." }, 400);
@@ -156,6 +172,19 @@ export function registerBuilder(app: Hono, deps: { db: Database; live: LiveProvi
     db.agents.addDoc(row.id, { id: `doc-${randomBytes(5).toString("hex")}`, title: title.slice(0, 120), text });
     live.factory.invalidateKnowledge(row.id);
     return c.json(detail(load(row.id) as AgentRow), 201);
+  });
+
+  // ------------------------------------------------------------ long-term memory
+  app.get("/api/builder/agents/:id/memories", async (c) => {
+    const row = load(c.req.param("id"));
+    if (row === undefined) return c.json({ error: "Agent not found." }, 404);
+    const records = await db.memories(row.id).list({});
+    return c.json(records.filter((r) => r.kind !== "conversation").reverse().map((r) => ({ id: r.id, content: r.content, kind: r.kind, createdAt: r.createdAt })));
+  });
+  app.delete("/api/builder/agents/:id/memories/:memoryId", async (c) => {
+    const row = load(c.req.param("id"));
+    if (row === undefined) return c.json({ error: "Agent not found." }, 404);
+    return (await db.memories(row.id).delete(c.req.param("memoryId"))) ? c.json({ ok: true }) : c.json({ error: "Memory not found." }, 404);
   });
 
   app.delete("/api/builder/agents/:id/knowledge/:docId", (c) => {

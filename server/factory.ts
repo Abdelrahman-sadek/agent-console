@@ -4,6 +4,7 @@ import { piiGuardrail, promptInjectionGuardrail } from "@agent-farmework/securit
 import { ToolRuntime } from "@agent-farmework/tools";
 import { buildTools, type ApifyAccess } from "./catalog.js";
 import { conversationProvider } from "./conversation.js";
+import { createMemory, type Memory } from "@agent-farmework/memory";
 import type { Database } from "./db.js";
 import type { AgentSpec } from "./spec.js";
 
@@ -20,6 +21,17 @@ export class AgentFactory {
   private readonly cache = new Map<string, Agent<unknown>>();
   private readonly kbs = new Map<string, { rev: string; kb: KnowledgeBase }>();
   private readonly refunds = new Map<string, string>();
+  private readonly memories = new Map<string, Memory>();
+
+  /** One long-term memory per agent, persisted in SQLite. */
+  memoryFor(agentId: string): Memory {
+    let m = this.memories.get(agentId);
+    if (m === undefined) {
+      m = createMemory({ name: `agent-${agentId}`, store: this.db.memories(agentId), policy: { minConfidence: 0.5, maxContentLength: 500 } });
+      this.memories.set(agentId, m);
+    }
+    return m;
+  }
 
   /** `timeoutMs` stops a run that hangs (e.g. a provider that never answers). */
   constructor(private readonly db: Database, readonly providerIds: ReadonlySet<string>, providers: LLMProvider[], private readonly timeoutMs = 120_000, private readonly apify: ApifyAccess = { baseURL: "https://api.apify.com" }) {
@@ -67,17 +79,19 @@ export class AgentFactory {
     if (spec.guardrails.pii) guardrails.push(piiGuardrail());
     if (spec.guardrails.injection) guardrails.push(promptInjectionGuardrail());
     const tools = buildTools(spec.tools, kb, this.refunds, this.apify);
+    const memory = spec.memory.enabled ? this.memoryFor(agentId) : undefined;
+    if (memory !== undefined) tools.push(...memory.asTools());
 
     const agent = defineAgent({
       name: AgentFactory.runtimeId(agentId, ref),
       version: String(ref),
       description: spec.description,
       model: { providerId: spec.model.providerId, modelId: spec.model.modelId },
-      instructions: spec.instructions,
+      instructions: memory === undefined ? spec.instructions : `${spec.instructions}\n\nYou have long-term memory. When the user tells you a stable fact about themselves (name, role, preferences, ongoing projects), save it with the remember tool. Relevant memories appear in your context; use them naturally. Never save secrets or passwords.`,
       tools,
       permissions: ["*"],
       guardrails,
-      context: [conversationProvider(), ...(kb === undefined ? [] : [kb.asContextProvider({ k: spec.knowledge.k, minScore: 0.1 })])],
+      context: [conversationProvider(), ...(memory === undefined ? [] : [memory.asContextProvider({ k: 20, minScore: -1 })] /* all saved facts (small per agent), most relevant first */), ...(kb === undefined ? [] : [kb.asContextProvider({ k: spec.knowledge.k, minScore: 0.1 })])],
       limits: { maxSteps: spec.limits.maxSteps, maxToolCalls: spec.limits.maxToolCalls, maxCost: spec.limits.maxCost, timeoutMs: this.timeoutMs },
       runtime: this.runtime,
     });

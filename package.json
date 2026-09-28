@@ -21,6 +21,7 @@
     "@agent-farmework/core": "link:./vendor/agents-framework/packages/core",
     "@agent-farmework/knowledge": "link:./vendor/agents-framework/packages/knowledge",
     "@agent-farmework/llm": "link:./vendor/agents-framework/packages/llm",
+    "@agent-farmework/memory": "link:./vendor/agents-framework/packages/memory",
     "@agent-farmework/production": "link:./vendor/agents-framework/packages/production",
     "@agent-farmework/provider-anthropic": "link:./vendor/agents-framework/packages/provider-anthropic",
     "@agent-farmework/security": "link:./vendor/agents-framework/packages/security",

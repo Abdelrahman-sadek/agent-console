@@ -113,7 +113,7 @@ export type Approval = { mode: "never" } | { mode: "always" } | { mode: "thresho
 export type ToolSpec =
   | { type: "http"; name: string; description: string; method: "GET" | "POST"; url: string; params: string[]; approval: Approval }
   | { type: "apify_actor"; name: string; description: string; actorId: string; input: string; params: string[]; maxItems: number; timeoutSecs: number; approval: Approval }
-  | { type: "knowledge_search" | "calculator" | "current_time" | "demo_lookup_order" | "demo_refund"; approval: Approval };
+  | { type: "knowledge_search" | "read_web_page" | "calculator" | "current_time" | "demo_lookup_order" | "demo_refund"; approval: Approval };
 
 export interface AgentSpec {
   name: string;
@@ -122,6 +122,7 @@ export interface AgentSpec {
   model: { providerId: string; modelId: string };
   tools: ToolSpec[];
   knowledge: { enabled: boolean; k: number };
+  memory: { enabled: boolean };
   guardrails: { pii: boolean; injection: boolean };
   limits: { maxSteps: number; maxToolCalls: number; maxCost: number };
   examples: string[];
@@ -212,3 +213,5 @@ export interface LogIssue { time: string; level: "error" | "warn" | "info"; sour
 
 export interface Integrations { apify: { configured: boolean; source: "console" | "server" | null; keyHint: string | null; keyUrl: string } }
 export interface StoreActor { id: string; title: string; description: string; users: number | null; pricing: string | null; url: string }
+export interface Template { id: string; title: string; summary: string; needs?: string }
+export interface MemoryItem { id: string; content: string; kind: string; createdAt: string }

@@ -3,11 +3,13 @@ import { createEgressPolicy, defineHttpTool } from "@agent-farmework/security";
 import { defineTool, type AnyTool, type ToolApproval } from "@agent-farmework/tools";
 import { z } from "zod";
 import type { ApprovalSpec, ToolSpec } from "./spec.js";
+import { fetchPageText } from "./webpage.js";
 
 /** What the builder UI offers. Every tool the model can use comes from here. */
 export const CATALOG = [
   { type: "http", label: "Web API call", description: "Call one HTTPS API you allow (only that host is reachable; private addresses are blocked).", configurable: true },
   { type: "apify_actor", label: "Apify actor", description: "Run a ready-made Apify tool (scrapers, search, data extraction). Needs an Apify token in Settings; asks for approval by default.", configurable: true },
+  { type: "read_web_page", label: "Read web page", description: "Open any public https page and read it as clean text (private addresses are blocked).", configurable: false },
   { type: "knowledge_search", label: "Search knowledge", description: "Search this agent's uploaded documents and cite them.", configurable: false },
   { type: "calculator", label: "Calculator", description: "Exact arithmetic: + − × ÷ % ^ and parentheses.", configurable: false },
   { type: "current_time", label: "Current date & time", description: "Today's date and time (UTC and Cairo).", configurable: false },
@@ -135,6 +137,16 @@ export function buildTools(specs: readonly ToolSpec[], kb: KnowledgeBase | undef
       case "knowledge_search":
         if (kb === undefined) throw new Error("knowledge_search needs knowledge enabled");
         return kb.asTool({ name: "knowledge_search", description: "Search this agent's documents. Cite results as [n].", k: 4 }) as AnyTool;
+      case "read_web_page": {
+        const approval = approvalOf<{ url: string }>(t.approval);
+        return defineTool({
+          name: "read_web_page",
+          description: "Read a public web page (https) and get its main text. Use it to check facts or read links the user gives. Cite the URL.",
+          input: z.object({ url: z.string().url().max(2_000) }),
+          ...(approval === undefined ? {} : { approval }),
+          execute: async ({ url }) => fetchPageText(url, { allowHttpForTests: process.env.READER_ALLOW_PRIVATE_FOR_TESTS === "1" }),
+        }) as AnyTool;
+      }
       case "calculator":
         return defineTool({
           name: "calculator",

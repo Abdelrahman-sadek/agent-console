@@ -17,6 +17,9 @@ importers:
       '@agent-farmework/llm':
         specifier: link:./vendor/agents-framework/packages/llm
         version: link:vendor/agents-framework/packages/llm
+      '@agent-farmework/memory':
+        specifier: link:./vendor/agents-framework/packages/memory
+        version: link:vendor/agents-framework/packages/memory
       '@agent-farmework/production':
         specifier: link:./vendor/agents-framework/packages/production
         version: link:vendor/agents-framework/packages/production

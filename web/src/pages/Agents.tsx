@@ -1,22 +1,25 @@
-import { ArrowRight, Hand, Loader2, Pencil, Plus, ShieldCheck, Sparkles, Wrench } from "lucide-react";
+import { ArrowRight, FilePlus2, Hand, Loader2, Pencil, Plus, ShieldCheck, Sparkles, Wrench, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { api, post, type AgentInfo, type BuilderAgent, type BuilderListItem } from "../api";
+import { api, post, type AgentInfo, type BuilderAgent, type BuilderListItem, type Template } from "../api";
 import { Button, Card, ago } from "../ui";
 
 export function AgentsPage({ agents }: { agents: AgentInfo[] }) {
   const [mine, setMine] = useState<BuilderListItem[]>([]);
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState<string | null>(null);
+  const [picking, setPicking] = useState(false);
+  const [templates, setTemplates] = useState<Template[]>([]);
+  useEffect(() => { api<Template[]>("/api/builder/templates").then(setTemplates).catch(() => {}); }, []);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => { api<BuilderListItem[]>("/api/builder/agents").then(setMine).catch(() => {}); }, []);
 
-  const create = async () => {
-    setCreating(true);
+  const create = async (template?: string) => {
+    setCreating(template ?? "blank");
     try {
-      const a = await post<BuilderAgent>("/api/builder/agents", {});
+      const a = await post<BuilderAgent>("/api/builder/agents", template ? { template } : {});
       window.location.hash = `#/build/${a.id}`;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not create the agent.");
-      setCreating(false);
+      setCreating(null);
     }
   };
   const drafts = mine.filter((m) => m.currentVersion === null);
@@ -30,8 +33,32 @@ export function AgentsPage({ agents }: { agents: AgentInfo[] }) {
           <h1 className="text-2xl font-semibold tracking-tight">Agents</h1>
           <p className="mt-1 text-sm text-muted">Each agent can only use its listed tools, within hard limits. Risky actions wait for you.</p>
         </div>
-        <Button onClick={() => void create()} disabled={creating}>{creating ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}New agent</Button>
+        <Button onClick={() => setPicking(true)}><Plus size={16} />New agent</Button>
       </header>
+      {picking && (
+        <section className="rise mb-6 rounded-2xl border border-brand/30 bg-brand/5 p-5" aria-label="Choose how to start">
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h2 className="font-semibold">Start from a template</h2>
+              <p className="text-sm text-muted">Everything stays editable. Pick the closest one, or start blank.</p>
+            </div>
+            <button onClick={() => setPicking(false)} aria-label="Close" className="rounded-lg p-1.5 text-muted hover:bg-panel-2"><X size={18} /></button>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <button onClick={() => void create()} disabled={creating !== null} className="flex flex-col items-start gap-1 rounded-xl border border-dashed border-line bg-panel p-4 text-left hover:border-brand">
+              <span className="flex items-center gap-2 font-medium">{creating === "blank" ? <Loader2 size={16} className="animate-spin" /> : <FilePlus2 size={16} />}Blank agent</span>
+              <span className="text-sm text-muted">Start from scratch.</span>
+            </button>
+            {templates.map((t) => (
+              <button key={t.id} onClick={() => void create(t.id)} disabled={creating !== null} className="flex flex-col items-start gap-1 rounded-xl border border-line bg-panel p-4 text-left hover:border-brand">
+                <span className="flex items-center gap-2 font-medium">{creating === t.id ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} className="text-brand" />}{t.title}</span>
+                <span className="text-sm text-muted">{t.summary}</span>
+                {t.needs && <span className="mt-1 rounded-full bg-amber-500/12 px-2 py-0.5 text-xs text-amber-800 dark:text-amber-300">Needs: {t.needs}</span>}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
       {error && <p role="alert" className="mb-4 text-sm text-rose-600">{error}</p>}
 
       {drafts.length > 0 && (

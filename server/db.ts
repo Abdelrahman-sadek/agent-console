@@ -3,7 +3,15 @@ import { dirname } from "node:path";
 import type { AgentEvent, AgentState, EventSink } from "@agent-farmework/core";
 import { SqliteRunStateStore, openSqlite, type SqliteDatabase } from "@agent-farmework/production";
 import type { AuditSink, ToolAuditRecord } from "@agent-farmework/tools";
-import type { AgentSpec } from "./spec.js";
+import { scopeMatches, type MemoryQuery, type MemoryRecord, type MemoryStore } from "@agent-farmework/memory";
+import { AgentSpec } from "./spec.js";
+
+/** Specs saved by older versions may miss newer fields: parse again so defaults apply. */
+function readSpec(json: string): AgentSpec {
+  const raw = JSON.parse(json) as unknown;
+  const parsed = AgentSpec.safeParse(raw);
+  return parsed.success ? parsed.data : ({ memory: { enabled: false }, ...(raw as object) } as AgentSpec);
+}
 
 /** One SQLite file holds run state (framework store), events and the tool audit log. */
 export async function openDatabase(path: string) {
@@ -28,7 +36,31 @@ export async function openDatabase(path: string) {
       created_at TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS knowledge_agent_idx ON knowledge_docs (agent_id, created_at);
   `);
-  return { db, runs, events: new EventLog(db), audit: new SqliteAuditSink(db), queries: new RunQueries(db), agents: new AgentStore(db) };
+  db.exec(`CREATE TABLE IF NOT EXISTS memories (id TEXT PRIMARY KEY, namespace TEXT NOT NULL, record TEXT NOT NULL, created_at TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS memories_ns_idx ON memories (namespace, created_at);`);
+  return { db, runs, events: new EventLog(db), audit: new SqliteAuditSink(db), queries: new RunQueries(db), agents: new AgentStore(db), memories: (namespace: string) => new SqliteMemoryStore(db, namespace) };
+}
+
+/** Long-term memory records for one agent (namespace), persisted in SQLite. */
+export class SqliteMemoryStore implements MemoryStore {
+  constructor(private readonly db: SqliteDatabase, private readonly namespace: string) {}
+  async put(record: MemoryRecord): Promise<void> {
+    this.db.prepare("INSERT INTO memories (id, namespace, record, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET record = excluded.record").run(record.id, this.namespace, JSON.stringify(record), record.createdAt);
+  }
+  async get(id: string): Promise<MemoryRecord | undefined> {
+    const row = this.db.prepare("SELECT record FROM memories WHERE id = ? AND namespace = ?").get(id, this.namespace) as { record: string } | undefined;
+    return row === undefined ? undefined : (JSON.parse(row.record) as MemoryRecord);
+  }
+  async list(query: MemoryQuery): Promise<MemoryRecord[]> {
+    const rows = this.db.prepare("SELECT record FROM memories WHERE namespace = ? ORDER BY created_at").all(this.namespace) as { record: string }[];
+    const now = new Date().toISOString();
+    return rows
+      .map((r) => JSON.parse(r.record) as MemoryRecord)
+      .filter((r) => (query.kinds === undefined || query.kinds.includes(r.kind)) && (query.scope === undefined || scopeMatches(r.scope, query.scope)) && (query.includeExpired === true || r.expiresAt === undefined || r.expiresAt > now));
+  }
+  async delete(id: string): Promise<boolean> {
+    return Number((this.db.prepare("DELETE FROM memories WHERE id = ? AND namespace = ?").run(id, this.namespace) as { changes?: number | bigint }).changes ?? 0) > 0;
+  }
 }
 
 export interface AgentRow {
@@ -46,7 +78,7 @@ export class AgentStore {
   constructor(private readonly db: SqliteDatabase) {}
 
   private row(r: Record<string, unknown>): AgentRow {
-    return { id: String(r.id), draft: JSON.parse(String(r.draft)) as AgentSpec, currentVersion: r.current_version === null ? null : Number(r.current_version), createdAt: String(r.created_at), updatedAt: String(r.updated_at) };
+    return { id: String(r.id), draft: readSpec(String(r.draft)), currentVersion: r.current_version === null ? null : Number(r.current_version), createdAt: String(r.created_at), updatedAt: String(r.updated_at) };
   }
   list(): AgentRow[] {
     return (this.db.prepare("SELECT * FROM agents WHERE archived = 0 ORDER BY created_at").all() as Record<string, unknown>[]).map((r) => this.row(r));
@@ -85,7 +117,7 @@ export class AgentStore {
   }
   versions(id: string): VersionRow[] {
     return (this.db.prepare("SELECT * FROM agent_versions WHERE agent_id = ? ORDER BY version DESC").all(id) as Record<string, unknown>[]).map((r) => ({
-      version: Number(r.version), spec: JSON.parse(String(r.spec)) as AgentSpec, note: String(r.note), createdAt: String(r.created_at),
+      version: Number(r.version), spec: readSpec(String(r.spec)), note: String(r.note), createdAt: String(r.created_at),
     }));
   }
   version(id: string, version: number): VersionRow | undefined {

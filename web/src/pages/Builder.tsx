@@ -1,6 +1,6 @@
-import { ArrowLeft, BookOpen, Brain, Check, FileUp, History, Loader2, Plus, Rocket, RotateCcw, ShieldCheck, Trash2, Wrench } from "lucide-react";
+import { ArrowLeft, BookOpen, Brain, Globe, History as HistoryIcon, Lightbulb, Check, FileUp, History, Loader2, Plus, Rocket, RotateCcw, ShieldCheck, Trash2, Wrench } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { ApiError, api, del, post, put, upload, type Integrations, type StoreActor, type AgentSpec, type Approval, type BuilderAgent, type CatalogItem, type Issue, type ProviderInfo, type ToolSpec } from "../api";
+import { ApiError, api, del, post, put, upload, type Integrations, type MemoryItem, type StoreActor, type AgentSpec, type Approval, type BuilderAgent, type CatalogItem, type Issue, type ProviderInfo, type ToolSpec } from "../api";
 import { Button, Card, ago, cx } from "../ui";
 import { Conversation } from "./Chat";
 
@@ -218,6 +218,7 @@ function Knowledge({ agent, spec, set, onAgent }: { agent: BuilderAgent; spec: A
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
+  const [pageUrl, setPageUrl] = useState("");
   const file = useRef<HTMLInputElement>(null);
   const run = async (fn: () => Promise<BuilderAgent>) => {
     setBusy(true); setError(null);
@@ -261,6 +262,11 @@ function Knowledge({ agent, spec, set, onAgent }: { agent: BuilderAgent; spec: A
             <Button variant="ghost" disabled={busy} onClick={() => file.current?.click()}>{busy ? <Loader2 size={15} className="animate-spin" /> : <FileUp size={15} />}Upload file</Button>
             <span className="text-xs text-muted">PDF, TXT, Markdown, HTML, CSV or JSON · up to 5 MB</span>
           </div>
+          <div className="flex flex-wrap gap-2">
+            <label htmlFor="kb-url" className="sr-only">Web page address</label>
+            <input id="kb-url" className={cx(inputCls, "min-w-0 flex-1 font-mono")} placeholder="https://… add a web page as a document" value={pageUrl} onChange={(e) => setPageUrl(e.target.value)} />
+            <Button variant="ghost" disabled={busy || !/^https:\/\/\S+$/.test(pageUrl.trim())} onClick={() => void run(() => post(`/api/builder/agents/${agent.id}/knowledge`, { url: pageUrl.trim() })).then((ok) => { if (ok) setPageUrl(""); })}><Globe size={15} />Add page</Button>
+          </div>
           <details className="rounded-xl border border-line px-4 py-3">
             <summary className="cursor-pointer text-sm font-medium">Paste text instead</summary>
             <div className="mt-3 space-y-2">
@@ -274,6 +280,37 @@ function Knowledge({ agent, spec, set, onAgent }: { agent: BuilderAgent; spec: A
           </details>
           {error && <p role="alert" className="text-sm text-rose-600 dark:text-rose-300">{error}</p>}
         </>
+      )}
+    </Section>
+  );
+}
+
+// ------------------------------------------------------------------ memory
+
+function MemorySection({ agentId, spec, set }: { agentId: string; spec: AgentSpec; set: (s: AgentSpec) => void }) {
+  const [items, setItems] = useState<MemoryItem[] | null>(null);
+  const load = useCallback(() => { api<MemoryItem[]>(`/api/builder/agents/${agentId}/memories`).then(setItems).catch(() => setItems([])); }, [agentId]);
+  useEffect(() => { if (spec.memory.enabled) load(); }, [spec.memory.enabled, load]);
+  return (
+    <Section icon={<Lightbulb size={18} />} title="Long-term memory" subtitle="The agent remembers stable facts you tell it (name, role, preferences) in every future chat.">
+      <Toggle checked={spec.memory.enabled} label="Remember things about me" hint="Adds remember / recall tools. Secrets and passwords are never saved." onChange={(enabled) => set({ ...spec, memory: { enabled } })} />
+      {spec.memory.enabled && (
+        <div>
+          <div className="mb-2 flex items-center justify-between">
+            <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted"><HistoryIcon size={13} />What it remembers</h3>
+            <button onClick={load} className="text-xs text-brand hover:underline">Refresh</button>
+          </div>
+          <ul className="divide-y divide-line rounded-xl border border-line">
+            {(items ?? []).length === 0 && <li className="px-4 py-3 text-sm text-muted">Nothing yet. Tell the agent something about yourself in a chat.</li>}
+            {(items ?? []).map((m) => (
+              <li key={m.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+                <span className="min-w-0 flex-1" dir="auto">{m.content}</span>
+                <span className="text-xs text-muted">{ago(m.createdAt)}</span>
+                <button aria-label="Forget this" onClick={() => void del(`/api/builder/agents/${agentId}/memories/${m.id}`).then(load)} className="rounded-lg p-1 text-muted hover:text-rose-600"><Trash2 size={15} /></button>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </Section>
   );
@@ -437,6 +474,7 @@ export function BuilderPage({ id, onPublished }: { id: string; onPublished: () =
           </Section>
 
           <Knowledge agent={agent} spec={spec} set={set} onAgent={setAgent} />
+          <MemorySection agentId={agent.id} spec={spec} set={set} />
           {err("knowledge") && <p className="-mt-3 text-sm text-rose-600 dark:text-rose-300">{err("knowledge")}</p>}
 
           <Section icon={<ShieldCheck size={18} />} title="Safety & limits" subtitle="Hard stops the agent cannot talk its way around.">

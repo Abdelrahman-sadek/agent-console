@@ -12,7 +12,7 @@ A web console for **[agents-framework](https://github.com/agent-farmework/agents
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=black)
 ![Tailwind](https://img.shields.io/badge/Tailwind-4-06b6d4?logo=tailwindcss&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-28%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-33%20passing-brightgreen)
 
 [**Quick start**](#-quick-start) · [**Features**](#-features) · [**Build an agent**](#-build-your-own-agent) · [**Screenshots**](#-screenshots) · [**How it works**](#-how-it-works) · [**FAQ**](#-faq)
 
@@ -75,7 +75,9 @@ Light and dark themes, a **phone layout**, keyboard navigation and screen-reader
 
 ## 🧩 Build your own agent
 
-No code needed. Click **New agent**, fill in the form, try it in the test chat, and publish.
+No code needed. Click **New agent**, pick a **template** (web page reader, document Q&A, personal assistant with memory, support desk with approvals, web search, writing & translation) or start blank, try it in the test chat, and publish.
+
+<img src="screenshots/18-templates.png" alt="Template picker" width="820" />
 
 <img src="screenshots/12-builder-test-publish.png" alt="Agent builder with knowledge, safety limits, publish panel and a test chat answering with a citation" width="900" />
 
@@ -83,9 +85,10 @@ No code needed. Click **New agent**, fill in the form, try it in the test chat, 
 | --- | --- |
 | **Basics** | Name, description, instructions, example questions |
 | **Model** | Claude, OpenAI, OpenRouter, Gemini, Groq, Mistral, DeepSeek, xAI, Together, Ollama, **any OpenAI-compatible server**, or the offline Demo model |
-| **Tools** | Web API call (HTTPS, only its own host, private addresses blocked), **Apify actors** (thousands of ready-made scrapers and search tools, picked from the live Apify Store), knowledge search, calculator, date & time, demo order tools |
+| **Tools** | **Read web page** (any public https page as clean text), Web API call (HTTPS, only its own host, private addresses blocked), **Apify actors** (thousands of ready-made scrapers and search tools, picked from the live Apify Store), knowledge search, calculator, date & time, demo order tools |
 | **Approval rules** | Per tool: never, always, or **only when a value is over a limit** (e.g. `amount over 100`) |
-| **Knowledge** | Upload PDF, TXT, Markdown, HTML, CSV or JSON, or paste text. Answers cite them |
+| **Knowledge** | Upload PDF, TXT, Markdown, HTML, CSV or JSON, paste text, or **add a web page by URL**. Answers cite them |
+| **Long-term memory** | One switch: the agent saves stable facts you tell it (name, role, preferences) and uses them in every later chat. See and delete each memory in the builder |
 | **Safety & limits** | PII redaction, prompt-injection blocking, max steps, tool calls and cost per run |
 
 Every publish creates a **version** with a note. Roll back with one click. A run waiting for approval always resumes on the version it started with. Test-chat runs show up in history as *Name (test)*.

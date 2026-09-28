@@ -38,6 +38,7 @@ export const ToolSpec = z.discriminatedUnion("type", [
     approval: ApprovalSpec.default({ mode: "always" }),
   }),
   z.object({ type: z.literal("knowledge_search"), approval }),
+  z.object({ type: z.literal("read_web_page"), approval }),
   z.object({ type: z.literal("calculator"), approval }),
   z.object({ type: z.literal("current_time"), approval }),
   z.object({ type: z.literal("demo_lookup_order"), approval }),
@@ -53,6 +54,8 @@ export const AgentSpec = z
     model: z.object({ providerId: z.string().min(1).max(40), modelId: z.string().trim().min(1).max(120) }),
     tools: z.array(ToolSpec).max(12).default([]),
     knowledge: z.object({ enabled: z.boolean().default(false), k: z.number().int().min(1).max(8).default(3) }).default({ enabled: false, k: 3 }),
+    /** Long-term memory: the agent saves stable facts about the user and recalls them in later chats. */
+    memory: z.object({ enabled: z.boolean().default(false) }).default({ enabled: false }),
     guardrails: z.object({ pii: z.boolean().default(true), injection: z.boolean().default(true) }).default({ pii: true, injection: true }),
     limits: z
       .object({
