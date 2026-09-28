@@ -10,7 +10,9 @@
     "dev:web": "vite",
     "build": "tsc --noEmit && vite build",
     "start": "NODE_ENV=production tsx server/index.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check": "pnpm test && pnpm build",
+    "prepare": "git config core.hooksPath .githooks 2>/dev/null || true"
   },
   "engines": {
     "node": ">=22.5"
@@ -19,13 +21,20 @@
     "@agent-farmework/core": "link:./vendor/agents-framework/packages/core",
     "@agent-farmework/knowledge": "link:./vendor/agents-framework/packages/knowledge",
     "@agent-farmework/llm": "link:./vendor/agents-framework/packages/llm",
+    "@agent-farmework/memory": "link:./vendor/agents-framework/packages/memory",
     "@agent-farmework/production": "link:./vendor/agents-framework/packages/production",
+    "@agent-farmework/provider-anthropic": "link:./vendor/agents-framework/packages/provider-anthropic",
     "@agent-farmework/security": "link:./vendor/agents-framework/packages/security",
     "@agent-farmework/tools": "link:./vendor/agents-framework/packages/tools",
-    "zod": "link:./vendor/agents-framework/node_modules/zod",
+    "@anthropic-ai/sdk": "link:./vendor/agents-framework/packages/provider-anthropic/node_modules/@anthropic-ai/sdk",
     "@hono/node-server": "^1.14.0",
     "hono": "^4.7.0",
-    "tsx": "^4.19.0"
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "tsx": "^4.19.0",
+    "unpdf": "1.8.1",
+    "yaml": "^2.9.1",
+    "zod": "link:./vendor/agents-framework/node_modules/zod"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.0",

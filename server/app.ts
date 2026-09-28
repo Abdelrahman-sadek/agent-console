@@ -5,13 +5,38 @@ import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { secureHeaders } from "hono/secure-headers";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
+import type { Agent } from "@agent-farmework/core";
 import { createAgents, operator } from "./agents.js";
+import { customAgentInfo, registerBuilder } from "./builder.js";
 import type { Database } from "./db.js";
+import { AgentFactory } from "./factory.js";
+import { SkillwareClient } from "./skillware.js";
+import { loadProviders, type ProviderInfo } from "./providers.js";
+import { ProviderSecrets, loadMasterKey } from "./secrets.js";
+import { registerProviderSettings } from "./settings.js";
+import { stripThoughts, turnsFromRuns } from "./conversation.js";
+import { IssueLog, errorDetail, type Level, type Source } from "./logger.js";
 
 export interface AppOptions {
   db: Database;
   adminPassword: string;
   secureCookies: boolean;
+  /** Where provider keys are read from (defaults to process.env). */
+  env?: Readonly<Record<string, string | undefined>>;
+  /** Encrypts provider keys saved from the browser (see loadMasterKey). A random key is used when omitted. */
+  masterKey?: Buffer;
+  /** Where problems are recorded (file + memory). An in-memory log is used when omitted. */
+  log?: IssueLog;
+}
+
+/** Providers and the factory built from them; replaced whenever provider settings change. */
+export interface LiveProviders {
+  factory: AgentFactory;
+  providerInfo: ProviderInfo[];
+  /** Whether an Apify token is available (Settings or APIFY_TOKEN). */
+  apifyConfigured: boolean;
+  /** The skillware-runner service, when SKILLWARE_URL and SKILLWARE_TOKEN are set. */
+  skillware?: SkillwareClient;
 }
 
 const SESSION_COOKIE = "ac_session";
@@ -28,6 +53,31 @@ function parseArgs(raw: string): unknown {
   }
 }
 
+/**
+ * Turn raw provider errors ("gemini: HTTP 404 [{...json...}]") into one readable line
+ * with a hint on what to do.
+ */
+export function friendlyError(message: string): string {
+  const m = /^([\w-]+): HTTP (\d{3}) ([\s\S]*)$/.exec(message);
+  if (m === null) return message;
+  const [, provider, status, body] = m as unknown as [string, string, string, string];
+  let detail = body.trim();
+  try {
+    const parsed = JSON.parse(detail) as unknown;
+    const first = (Array.isArray(parsed) ? parsed[0] : parsed) as { error?: { message?: unknown } | string; message?: unknown } | undefined;
+    const e = first?.error;
+    const text = typeof e === "string" ? e : typeof e?.message === "string" ? e.message : typeof first?.message === "string" ? first.message : undefined;
+    if (text !== undefined) detail = text;
+  } catch { /* not JSON: keep the text */ }
+  detail = detail.replace(/\s+/g, " ").slice(0, 300);
+  const hint =
+    status === "401" || status === "403" ? " Check the API key in Settings." :
+    status === "404" ? " Pick another model in the builder (Settings → Test lists the models your key can use)." :
+    status === "429" ? " The provider's rate limit or quota was reached; wait a moment or check your plan." :
+    status.startsWith("5") ? " The provider had a problem; try again shortly." : "";
+  return `${provider} (HTTP ${status}): ${detail}${hint}`;
+}
+
 /** What the UI needs about a run, without internal message history. */
 export function summarize(state: AgentState) {
   const firstUser = state.messages.find((m) => m.role === "user")?.content;
@@ -37,11 +87,11 @@ export function summarize(state: AgentState) {
     status: state.status,
     input: typeof firstUser === "string" ? firstUser : typeof state.input === "string" ? state.input : JSON.stringify(state.input),
     output: state.output ?? null,
-    error: state.error === undefined ? null : { code: state.error.code, message: state.error.message },
+    error: state.error === undefined ? null : { code: state.error.code, message: friendlyError(state.error.message) },
     usage: state.usage,
     createdAt: state.createdAt,
     updatedAt: state.updatedAt,
-    sources: state.contextItems.map((i) => ({ title: i.source?.title ?? i.id, score: i.score ?? null })),
+    sources: state.contextItems.filter((i) => i.kind === "knowledge").map((i) => ({ title: i.source?.title ?? i.id, score: i.score ?? null })),
     pendingApprovals: state.pendingApprovals.map((p) => ({
       approvalId: p.approval.approvalId,
       toolName: p.approval.toolName,
@@ -56,12 +106,74 @@ export function summarize(state: AgentState) {
 export async function createApp(options: AppOptions) {
   const { db } = options;
   const { agents, info } = await createAgents(db);
+  const env = options.env ?? process.env;
+  const log = options.log ?? new IssueLog();
+  const skillwareClient = env.SKILLWARE_URL && env.SKILLWARE_TOKEN ? new SkillwareClient(env.SKILLWARE_URL, env.SKILLWARE_TOKEN) : undefined;
+  const secrets = new ProviderSecrets(db.db, options.masterKey ?? loadMasterKey(":memory:", {}));
+  const build = (): LiveProviders => {
+    const saved = secrets.all();
+    const { providers, info } = loadProviders(env, saved);
+    const apifyToken = saved["apify"]?.apiKey || env.APIFY_TOKEN || undefined;
+    const apify = { baseURL: env.APIFY_BASE_URL ?? "https://api.apify.com", ...(apifyToken ? { token: apifyToken } : {}) };
+    // Skillware skills that can use Gemini get the key saved in Settings (only if they declare it).
+    const googleKey = saved["gemini"]?.apiKey || env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
+    const skillware = skillwareClient ? { client: skillwareClient, env: (googleKey ? { GOOGLE_API_KEY: googleKey, GEMINI_API_KEY: googleKey } : {}) as Record<string, string> } : undefined;
+    return { factory: new AgentFactory(db, new Set(providers.map((p) => p.id)), providers, Number(env.RUN_TIMEOUT_MS ?? 120_000), apify, skillware), providerInfo: info, apifyConfigured: apifyToken !== undefined, ...(skillwareClient ? { skillware: skillwareClient } : {}) };
+  };
+  const live: LiveProviders = build();
+  const reload = () => Object.assign(live, build());
+  /** Built-in demo agents, then agents built in the browser (published version, or the draft for test chat). */
+  const resolveAgent = async (agentId: string, draft = false): Promise<Agent<unknown> | undefined> => {
+    const builtin = agents.get(agentId);
+    if (builtin !== undefined) return builtin;
+    const row = db.agents.get(agentId);
+    if (row === undefined) return undefined;
+    if (draft) return live.factory.build(agentId, "draft");
+    return row.currentVersion === null ? undefined : live.factory.build(agentId, row.currentVersion);
+  };
   const sessions = new Map<string, number>();
   const loginAttempts = new Map<string, { count: number; resetAt: number }>();
   const expected = sha256(options.adminPassword);
 
   const app = new Hono();
   app.use("*", secureHeaders());
+
+  // Anything a route throws is logged with its path, and the browser gets a plain message.
+  app.onError((error, c) => {
+    log.error("server", error.message, { method: c.req.method, path: c.req.path, ...errorDetail(error) });
+    return c.json({ error: "Something went wrong on the server. It was recorded in Logs." }, 500);
+  });
+
+  /** Log runs that end badly, with the agent and the reason. */
+  const watchRun = (agentId: string, runId: string, started: Promise<unknown>) =>
+    started
+      .then(async () => {
+        const state = await db.runs.load(runId);
+        if (state?.status === "COMPLETED" && stripThoughts(typeof state.output === "string" ? state.output : JSON.stringify(state.output ?? "")) === "") {
+          const last = [...state.messages].reverse().find((m) => m.role === "assistant");
+          log.warn("run", `${agentId}: the model finished without any answer text`, { runId, rawOutput: String(state.output ?? "").slice(0, 1_500), lastAssistant: JSON.stringify(last ?? null).slice(0, 1_500) });
+        }
+        if (state !== undefined && ["FAILED", "TIMED_OUT", "CANCELLED"].includes(state.status)) {
+          log.warn("run", `${agentId}: ${state.error ? friendlyError(state.error.message) : state.status}`, { runId, status: state.status, code: state.error?.code, agentVersion: state.agentVersion, raw: state.error?.message });
+        }
+      })
+      .catch((error: unknown) => log.error("run", `${agentId}: the run crashed: ${error instanceof Error ? error.message : String(error)}`, { runId, ...errorDetail(error) }));
+
+  // Browser errors (page crashes, lost live streams) are sent here so they land in the same log.
+  const clientReports = new Map<string, { count: number; resetAt: number }>();
+  app.post("/api/client-errors", async (c) => {
+    const ip = c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "local";
+    const now = Date.now();
+    const seen = clientReports.get(ip);
+    if (seen !== undefined && seen.resetAt > now && seen.count >= 30) return c.json({ ok: false }, 429);
+    clientReports.set(ip, seen !== undefined && seen.resetAt > now ? { ...seen, count: seen.count + 1 } : { count: 1, resetAt: now + 60_000 });
+    const body = z
+      .object({ level: z.enum(["error", "warn"]).default("error"), message: z.string().max(1_000), page: z.string().max(300).optional(), stack: z.string().max(4_000).optional(), context: z.record(z.string(), z.unknown()).optional() })
+      .safeParse(await c.req.json().catch(() => ({})));
+    if (!body.success) return c.json({ ok: false }, 400);
+    log.write(body.data.level, "browser", body.data.message, { page: body.data.page, stack: body.data.stack, userAgent: c.req.header("user-agent")?.slice(0, 200), ...body.data.context });
+    return c.json({ ok: true });
+  });
 
   app.get("/api/health", (c) => c.json({ ok: true, uptimeSeconds: Math.round(process.uptime()) }));
 
@@ -102,17 +214,46 @@ export async function createApp(options: AppOptions) {
   app.get("/api/me", (c) => c.json({ userId: operator.userId, tenantId: operator.tenantId }));
 
   // ------------------------------------------------------------ agents & runs
-  app.get("/api/agents", (c) => c.json(info));
-  app.get("/api/settings", (c) => c.json({ model: "Scripted demo model (offline, no API key)", database: "SQLite", operator }));
+  app.get("/api/agents", (c) => {
+    const custom = db.agents.list().filter((r) => r.currentVersion !== null).map((r) => customAgentInfo(r, db.agents.version(r.id, r.currentVersion as number)?.spec ?? r.draft));
+    return c.json([...info.map((a) => ({ ...a, kind: "builtin" })), ...custom]);
+  });
+  app.get("/api/settings", (c) => c.json({ providers: live.providerInfo, database: "SQLite", operator }));
+
+  registerBuilder(app, { db, live });
+
+  // ------------------------------------------------------------ logs (debugger)
+  app.get("/api/logs", (c) => {
+    const level = c.req.query("level") as Level | undefined;
+    const source = c.req.query("source") as Source | undefined;
+    const limit = Math.min(1_000, Math.max(1, Number(c.req.query("limit") ?? 200) || 200));
+    return c.json({ counts: log.counts(), file: log.file ?? null, issues: log.recent({ ...(level ? { level } : {}), ...(source ? { source } : {}), limit }) });
+  });
+  app.get("/api/logs/download", (c) => {
+    const lines = log.recent({ limit: 1_000 }).reverse().map((i) => JSON.stringify(i)).join("\n");
+    c.header("content-disposition", `attachment; filename="agent-console-log-${new Date().toISOString().slice(0, 10)}.jsonl"`);
+    return c.body(`${lines}\n`, 200, { "content-type": "application/x-ndjson; charset=utf-8" });
+  });
+  registerProviderSettings(app, { secrets, env, live, reload, log });
 
   app.post("/api/agents/:agentId/runs", async (c) => {
-    const agent = agents.get(c.req.param("agentId"));
-    if (agent === undefined) return c.json({ error: "Unknown agent." }, 404);
-    const body = z.object({ input: z.string().trim().min(1).max(2_000) }).safeParse(await c.req.json().catch(() => ({})));
+    const body = z
+      .object({ input: z.string().trim().min(1).max(2_000), draft: z.boolean().optional(), conversation: z.array(z.string().regex(/^run_[\w-]{1,80}$/)).max(20).optional() })
+      .safeParse(await c.req.json().catch(() => ({})));
     if (!body.success) return c.json({ error: "Message must be 1–2000 characters." }, 400);
+    let agent: Agent<unknown> | undefined;
+    try {
+      agent = await resolveAgent(c.req.param("agentId"), body.data.draft === true);
+    } catch (error) {
+      log.warn("run", `Could not start ${c.req.param("agentId")}: ${error instanceof Error ? error.message : String(error)}`, errorDetail(error));
+      return c.json({ error: error instanceof Error ? error.message : "Could not load the agent." }, 400);
+    }
+    if (agent === undefined) return c.json({ error: "Unknown or unpublished agent." }, 404);
     const runId = `run_${randomUUID()}`;
+    // Earlier turns of this chat, rebuilt from its finished runs (same agent only).
+    const history = turnsFromRuns(await Promise.all((body.data.conversation ?? []).map((id) => db.runs.load(id))), c.req.param("agentId"));
     // Runs continue in the background; the UI follows them over the event stream.
-    void agent.run({ input: body.data.input, user: operator, runId }).catch((error: unknown) => console.error(`run ${runId} crashed`, error));
+    void watchRun(c.req.param("agentId"), runId, agent.run({ input: body.data.input, user: operator, runId, ...(history.length ? { metadata: { history } } : {}) }));
     return c.json({ runId }, 202);
   });
 
@@ -157,8 +298,13 @@ export async function createApp(options: AppOptions) {
           last = event.sequence;
           await stream.writeSSE({ event: "agent-event", id: String(event.sequence), data: JSON.stringify(event) });
           if (event.type.startsWith("AGENT_") && TERMINAL.has(event.type.replace("AGENT_", ""))) {
-            const state = await db.runs.load(runId);
-            if (state !== undefined && TERMINAL.has(state.status)) await stream.writeSSE({ event: "run-state", data: JSON.stringify(summarize(state)) });
+            // The "finished" event can arrive a moment before the run is saved as finished: wait for it.
+            let state = await db.runs.load(runId);
+            for (let i = 0; i < 30 && (state === undefined || !TERMINAL.has(state.status)); i++) {
+              await new Promise((ok) => setTimeout(ok, 100));
+              state = await db.runs.load(runId);
+            }
+            if (state !== undefined) await stream.writeSSE({ event: "run-state", data: JSON.stringify(summarize(state)) });
           }
         }
       } finally {
@@ -181,7 +327,8 @@ export async function createApp(options: AppOptions) {
       .safeParse(await c.req.json().catch(() => ({})));
     if (!body.success) return c.json({ error: "Invalid decision." }, 400);
     const state = await db.runs.load(runId);
-    const agent = state === undefined ? undefined : agents.get(state.agentId);
+    // Resume on exactly the agent version the run started with.
+    const agent = state === undefined ? undefined : (agents.get(state.agentId) ?? (await live.factory.forRun(state.agentId, state.agentVersion).catch(() => undefined)));
     if (state === undefined || agent === undefined) return c.json({ error: "Run not found." }, 404);
     try {
       const result = await agent.resume({
@@ -197,8 +344,10 @@ export async function createApp(options: AppOptions) {
         ],
       });
       const after = await db.runs.load(result.runId);
+      if (after !== undefined && ["FAILED", "TIMED_OUT", "CANCELLED"].includes(after.status)) log.warn("run", `${after.agentId}: ${after.error ? friendlyError(after.error.message) : after.status} (after approval)`, { runId, status: after.status, code: after.error?.code });
       return c.json(after === undefined ? { status: result.status } : summarize(after));
     } catch (error) {
+      log.warn("run", `Approval on ${runId} failed: ${error instanceof Error ? error.message : String(error)}`, errorDetail(error));
       return c.json({ error: error instanceof Error ? error.message : "Could not apply the decision." }, 409);
     }
   });

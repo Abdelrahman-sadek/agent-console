@@ -3,6 +3,15 @@ import { dirname } from "node:path";
 import type { AgentEvent, AgentState, EventSink } from "@agent-farmework/core";
 import { SqliteRunStateStore, openSqlite, type SqliteDatabase } from "@agent-farmework/production";
 import type { AuditSink, ToolAuditRecord } from "@agent-farmework/tools";
+import { scopeMatches, type MemoryQuery, type MemoryRecord, type MemoryStore } from "@agent-farmework/memory";
+import { AgentSpec } from "./spec.js";
+
+/** Specs saved by older versions may miss newer fields: parse again so defaults apply. */
+function readSpec(json: string): AgentSpec {
+  const raw = JSON.parse(json) as unknown;
+  const parsed = AgentSpec.safeParse(raw);
+  return parsed.success ? parsed.data : ({ memory: { enabled: false }, ...(raw as object) } as AgentSpec);
+}
 
 /** One SQLite file holds run state (framework store), events and the tool audit log. */
 export async function openDatabase(path: string) {
@@ -16,8 +25,121 @@ export async function openDatabase(path: string) {
     CREATE TABLE IF NOT EXISTS audit (
       audit_id TEXT PRIMARY KEY, run_id TEXT NOT NULL, recorded_at TEXT NOT NULL, record TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS audit_run_idx ON audit (run_id, recorded_at);
+    CREATE TABLE IF NOT EXISTS agents (
+      id TEXT PRIMARY KEY, draft TEXT NOT NULL, current_version INTEGER, archived INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS agent_versions (
+      agent_id TEXT NOT NULL, version INTEGER NOT NULL, spec TEXT NOT NULL, note TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL, PRIMARY KEY (agent_id, version));
+    CREATE TABLE IF NOT EXISTS knowledge_docs (
+      id TEXT PRIMARY KEY, agent_id TEXT NOT NULL, title TEXT NOT NULL, text TEXT NOT NULL, bytes INTEGER NOT NULL,
+      created_at TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS knowledge_agent_idx ON knowledge_docs (agent_id, created_at);
   `);
-  return { db, runs, events: new EventLog(db), audit: new SqliteAuditSink(db), queries: new RunQueries(db) };
+  db.exec(`CREATE TABLE IF NOT EXISTS memories (id TEXT PRIMARY KEY, namespace TEXT NOT NULL, record TEXT NOT NULL, created_at TEXT NOT NULL);
+    CREATE INDEX IF NOT EXISTS memories_ns_idx ON memories (namespace, created_at);`);
+  return { db, runs, events: new EventLog(db), audit: new SqliteAuditSink(db), queries: new RunQueries(db), agents: new AgentStore(db), memories: (namespace: string) => new SqliteMemoryStore(db, namespace) };
+}
+
+/** Long-term memory records for one agent (namespace), persisted in SQLite. */
+export class SqliteMemoryStore implements MemoryStore {
+  constructor(private readonly db: SqliteDatabase, private readonly namespace: string) {}
+  async put(record: MemoryRecord): Promise<void> {
+    this.db.prepare("INSERT INTO memories (id, namespace, record, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET record = excluded.record").run(record.id, this.namespace, JSON.stringify(record), record.createdAt);
+  }
+  async get(id: string): Promise<MemoryRecord | undefined> {
+    const row = this.db.prepare("SELECT record FROM memories WHERE id = ? AND namespace = ?").get(id, this.namespace) as { record: string } | undefined;
+    return row === undefined ? undefined : (JSON.parse(row.record) as MemoryRecord);
+  }
+  async list(query: MemoryQuery): Promise<MemoryRecord[]> {
+    const rows = this.db.prepare("SELECT record FROM memories WHERE namespace = ? ORDER BY created_at").all(this.namespace) as { record: string }[];
+    const now = new Date().toISOString();
+    return rows
+      .map((r) => JSON.parse(r.record) as MemoryRecord)
+      .filter((r) => (query.kinds === undefined || query.kinds.includes(r.kind)) && (query.scope === undefined || scopeMatches(r.scope, query.scope)) && (query.includeExpired === true || r.expiresAt === undefined || r.expiresAt > now));
+  }
+  async delete(id: string): Promise<boolean> {
+    return Number((this.db.prepare("DELETE FROM memories WHERE id = ? AND namespace = ?").run(id, this.namespace) as { changes?: number | bigint }).changes ?? 0) > 0;
+  }
+}
+
+export interface AgentRow {
+  id: string;
+  draft: AgentSpec;
+  currentVersion: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface VersionRow { version: number; spec: AgentSpec; note: string; createdAt: string }
+export interface KnowledgeDoc { id: string; title: string; text: string; bytes: number; createdAt: string }
+
+/** Agents built in the browser: a draft, immutable published versions, and knowledge documents. */
+export class AgentStore {
+  constructor(private readonly db: SqliteDatabase) {}
+
+  private row(r: Record<string, unknown>): AgentRow {
+    return { id: String(r.id), draft: readSpec(String(r.draft)), currentVersion: r.current_version === null ? null : Number(r.current_version), createdAt: String(r.created_at), updatedAt: String(r.updated_at) };
+  }
+  list(): AgentRow[] {
+    return (this.db.prepare("SELECT * FROM agents WHERE archived = 0 ORDER BY created_at").all() as Record<string, unknown>[]).map((r) => this.row(r));
+  }
+  get(id: string): AgentRow | undefined {
+    const r = this.db.prepare("SELECT * FROM agents WHERE id = ? AND archived = 0").get(id) as Record<string, unknown> | undefined;
+    return r === undefined ? undefined : this.row(r);
+  }
+  create(id: string, draft: AgentSpec): AgentRow {
+    const now = new Date().toISOString();
+    this.db.prepare("INSERT INTO agents (id, draft, current_version, created_at, updated_at) VALUES (?, ?, NULL, ?, ?)").run(id, JSON.stringify(draft), now, now);
+    return this.get(id) as AgentRow;
+  }
+  saveDraft(id: string, draft: AgentSpec): void {
+    this.db.prepare("UPDATE agents SET draft = ?, updated_at = ? WHERE id = ?").run(JSON.stringify(draft), new Date().toISOString(), id);
+  }
+  /** Publishing freezes the current draft as the next version and makes it live. */
+  publish(id: string, note: string): number {
+    const row = this.get(id);
+    if (row === undefined) throw new Error("agent not found");
+    const last = this.db.prepare("SELECT MAX(version) AS v FROM agent_versions WHERE agent_id = ?").get(id) as { v: number | null };
+    const version = (last.v ?? 0) + 1;
+    const now = new Date().toISOString();
+    this.db.prepare("INSERT INTO agent_versions (agent_id, version, spec, note, created_at) VALUES (?, ?, ?, ?, ?)").run(id, version, JSON.stringify(row.draft), note, now);
+    this.db.prepare("UPDATE agents SET current_version = ?, updated_at = ? WHERE id = ?").run(version, now, id);
+    return version;
+  }
+  /** Rolling back makes an older version live again and loads it into the draft. */
+  rollback(id: string, version: number): void {
+    const v = this.version(id, version);
+    if (v === undefined) throw new Error("version not found");
+    this.db.prepare("UPDATE agents SET current_version = ?, draft = ?, updated_at = ? WHERE id = ?").run(version, JSON.stringify(v.spec), new Date().toISOString(), id);
+  }
+  archive(id: string): void {
+    this.db.prepare("UPDATE agents SET archived = 1, updated_at = ? WHERE id = ?").run(new Date().toISOString(), id);
+  }
+  versions(id: string): VersionRow[] {
+    return (this.db.prepare("SELECT * FROM agent_versions WHERE agent_id = ? ORDER BY version DESC").all(id) as Record<string, unknown>[]).map((r) => ({
+      version: Number(r.version), spec: readSpec(String(r.spec)), note: String(r.note), createdAt: String(r.created_at),
+    }));
+  }
+  version(id: string, version: number): VersionRow | undefined {
+    return this.versions(id).find((v) => v.version === version);
+  }
+  docs(agentId: string): KnowledgeDoc[] {
+    return (this.db.prepare("SELECT id, title, text, bytes, created_at FROM knowledge_docs WHERE agent_id = ? ORDER BY created_at").all(agentId) as Record<string, unknown>[]).map((r) => ({
+      id: String(r.id), title: String(r.title), text: String(r.text), bytes: Number(r.bytes), createdAt: String(r.created_at),
+    }));
+  }
+  addDoc(agentId: string, doc: { id: string; title: string; text: string }): void {
+    this.db.prepare("INSERT INTO knowledge_docs (id, agent_id, title, text, bytes, created_at) VALUES (?, ?, ?, ?, ?, ?)").run(doc.id, agentId, doc.title, doc.text, Buffer.byteLength(doc.text), new Date().toISOString());
+  }
+  removeDoc(agentId: string, docId: string): boolean {
+    const r = this.db.prepare("DELETE FROM knowledge_docs WHERE agent_id = ? AND id = ?").run(agentId, docId) as { changes?: number | bigint };
+    return Number(r.changes ?? 0) > 0;
+  }
+  /** Changes whenever documents change; used to rebuild knowledge bases only when needed. */
+  docsRevision(agentId: string): string {
+    const r = this.db.prepare("SELECT COUNT(*) AS n, COALESCE(MAX(created_at), '') AS m FROM knowledge_docs WHERE agent_id = ?").get(agentId) as { n: number; m: string };
+    return `${r.n}:${r.m}`;
+  }
 }
 
 type Listener = (event: AgentEvent) => void;

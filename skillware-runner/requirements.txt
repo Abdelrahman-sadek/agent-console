@@ -1,0 +1,13 @@
+# Skillware core
+requests>=2.31
+pyyaml>=6
+python-dotenv>=1
+beautifulsoup4>=4.12
+packaging>=23
+jsonschema>=4.0
+rich>=13.0
+# Extras for the enabled skills
+numpy>=1.26
+fastembed>=0.3
+trafilatura>=2.0
+google-genai>=1.0

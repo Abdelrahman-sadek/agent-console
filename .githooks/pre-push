@@ -1,0 +1,6 @@
+#!/bin/sh
+# Runs the same checks as CI (tests, typecheck, build) before every push.
+# Installed automatically by `pnpm install`. Skip once with: git push --no-verify
+set -e
+echo "pre-push: running pnpm check (tests + typecheck + build)…"
+pnpm check

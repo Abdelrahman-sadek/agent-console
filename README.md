@@ -4,17 +4,17 @@
 
 ### Run AI agents you can trust, and watch every step they take
 
-Chat with agents, approve risky actions before they happen, and review every run with its full timeline, tool audit and cost.<br/>
+Build agents in the browser, chat with them, approve risky actions before they happen, and review every run with its full timeline, tool audit and cost.<br/>
 A web console for **[agents-framework](https://github.com/agent-farmework/agents-framework)**.
 
-[![CI](https://github.com/Abdelrahman-sadek/agent-console/actions/workflows/ci.yml/badge.svg)](https://github.com/Abdelrahman-sadek/agent-console/actions/workflows/ci.yml)
+![Checks](https://img.shields.io/badge/checks-pre--push-4f46e5?logo=git&logoColor=white)
 ![Node](https://img.shields.io/badge/node-%E2%89%A522.5-339933?logo=node.js&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=black)
 ![Tailwind](https://img.shields.io/badge/Tailwind-4-06b6d4?logo=tailwindcss&logoColor=white)
-![Tests](https://img.shields.io/badge/API%20tests-5%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-41%20passing-brightgreen)
 
-[**Quick start**](#-quick-start) · [**Features**](#-features) · [**Screenshots**](#-screenshots) · [**How it works**](#-how-it-works) · [**FAQ**](#-faq)
+[**Quick start**](#-quick-start) · [**Features**](#-features) · [**Build an agent**](#-build-your-own-agent) · [**Screenshots**](#-screenshots) · [**How it works**](#-how-it-works) · [**FAQ**](#-faq)
 
 <br/>
 
@@ -72,6 +72,36 @@ Light and dark themes, a **phone layout**, keyboard navigation and screen-reader
 </td>
 </tr>
 </table>
+
+## 🧩 Build your own agent
+
+No code needed. Click **New agent**, pick a **template** (web page reader, document Q&A, personal assistant with memory, support desk with approvals, web search, writing & translation) or start blank, try it in the test chat, and publish.
+
+<img src="screenshots/18-templates.png" alt="Template picker" width="820" />
+
+<img src="screenshots/12-builder-test-publish.png" alt="Agent builder with knowledge, safety limits, publish panel and a test chat answering with a citation" width="900" />
+
+| Section | What you set |
+| --- | --- |
+| **Basics** | Name, description, instructions, example questions |
+| **Model** | Claude, OpenAI, OpenRouter, Gemini, Groq, Mistral, DeepSeek, xAI, Together, Ollama, **any OpenAI-compatible server**, or the offline Demo model |
+| **Tools** | **Read web page** (any public https page as clean text), Web API call (HTTPS, only its own host, private addresses blocked), **Apify actors** (thousands of ready-made scrapers and search tools, picked from the live Apify Store), knowledge search, calculator, date & time, demo order tools |
+| **Approval rules** | Per tool: never, always, or **only when a value is over a limit** (e.g. `amount over 100`) |
+| **Knowledge** | Upload PDF, TXT, Markdown, HTML, CSV or JSON, paste text, or **add a web page by URL**. Answers cite them |
+| **Skills** | Switch on ready-made know-how: *Cite sources*, *Arabic & English*, *Website permission check* (real robots.txt check with a conservative verdict), *Scam & dark-pattern check*, *Supportive coach* (a built-in crisis check in English and Arabic runs before the model), *Concise answers*. Or import a skill from [Skillware](https://github.com/ARPAHLS/skillware) by link (its instructions and rules; the Python code is not run) |
+| **Long-term memory** | One switch: the agent saves stable facts you tell it (name, role, preferences) and uses them in every later chat. See and delete each memory in the builder |
+| **Safety & limits** | PII redaction, prompt-injection blocking, max steps, tool calls and cost per run |
+
+Every publish creates a **version** with a note. Roll back with one click. A run waiting for approval always resumes on the version it started with. Test-chat runs show up in history as *Name (test)*.
+
+<table>
+<tr>
+<td width="50%"><img src="screenshots/14-agents-custom.png" alt="Agents page with a custom agent" /><p align="center"><b>Your agents</b> next to the built-in ones</p></td>
+<td width="50%"><img src="screenshots/13-builder-versions.png" alt="Versions and rollback" /><p align="center"><b>Versions</b>: publish notes and one-click rollback</p></td>
+</tr>
+</table>
+
+Under the hood each agent is a JSON spec validated with zod and turned into a real `defineAgent(...)` from agents-framework, so everything the framework guarantees (tool permissions, approvals, guardrails, limits, audit) applies to agents built in the browser too.
 
 ## 📸 Screenshots
 
@@ -140,6 +170,57 @@ pnpm test          # API tests
 | `PORT` / `HOST` | `3000` / `127.0.0.1` | Where the server listens. Put Nginx or Caddy in front for HTTPS. |
 | `DATABASE_PATH` | `data/console.db` | SQLite file for runs, events and audit |
 | `INSECURE_COOKIES` | unset | Set to `1` only to test production mode over plain HTTP |
+| `ANTHROPIC_API_KEY` | unset | Enables Claude models in the builder |
+| `OPENAI_API_KEY` / `OPENAI_BASE_URL` | unset / OpenAI | Enables OpenAI (or another OpenAI-compatible API) |
+| `OPENROUTER_API_KEY` | unset | Enables any model on OpenRouter |
+| `OLLAMA_BASE_URL` | unset | A local OpenAI-compatible server, e.g. `http://host.docker.internal:11434/v1` |
+
+### 🎓 Skills
+
+Skills package *how to do a job* (a directive), *rules it must never break* (a constitution) and *the tools it needs*, so you equip an agent instead of rewriting its prompt. The idea and several skills are adapted from [Skillware](https://github.com/ARPAHLS/skillware) (MIT). Where safety matters the check is code, not a prompt: the website-permission verdict comes from parsing `robots.txt`, and the coach's crisis check is a deterministic English/Arabic matcher that runs before the model sees the message.
+
+<img src="screenshots/19-skills.png" alt="Skills in the builder" width="620" />
+
+### 🐍 Real Skillware skills (Python)
+
+The **Skillware skill** tool runs the actual code from [Skillware](https://github.com/ARPAHLS/skillware) (MIT, vendored as a git submodule in `vendor/skillware`) in a separate private container, `skillware-runner` (Python 3.12, numpy, fastembed, trafilatura, google-genai). Enabled skills:
+
+| Skill | What it does |
+| --- | --- |
+| `security/prompt_injection_firewall` | Offline prompt-injection detection with evidence and sanitisation |
+| `security/deceptive_ui_guard` | Finds dark patterns and deceptive UI in a page's HTML |
+| `compliance/tos_evaluator` | robots.txt + terms-of-service check before automated access |
+| `wellness/mental_coach` | Deterministic crisis triage and grounded, non-clinical coaching |
+| `data_engineering/semantic_web_proxy` | Web page to token-efficient Markdown/JSON |
+| `data_engineering/novelty_extractor` | Filters text by semantic novelty (local embeddings) |
+| `optimization/context_optimizer` | Picks the most relevant spans of a long document for a goal |
+| `optimization/prompt_rewriter` | Compresses long prompts |
+| `monitoring/token_limiter`, `monitoring/kpi_gate` | Budget and KPI gates |
+| `linguistics/korean_slang` | Korean slang interpreter |
+
+Each skill's own instructions and constitution are given to the agent. The runner has no public port and sits on its own network with only the console; calls need a shared token (`SKILLWARE_TOKEN`, created on deploy), every URL parameter must be a public https address, and your Gemini key (from Settings) is passed only to skills that declare it. Left out on purpose: wallet/transaction and email-sending skills, and skills that need services the server does not run.
+
+<img src="screenshots/20-skillware-tool.png" alt="Skillware skill tool" width="560" />
+
+### 🕷️ Apify actors
+
+Add your Apify token under **Settings → Integrations**, then add the **Apify actor** tool in the builder: search the Apify Store, pick an actor (for example `apify/rag-web-browser` for web search), and write its input as JSON with `{{placeholders}}` the model fills in (values are JSON-escaped, so the model cannot change other fields). Runs call only `api.apify.com` with your token, are capped by *max results* and *timeout*, and **ask for approval by default** because actor runs are billed to your Apify account.
+
+<img src="screenshots/17-apify-tool.png" alt="Apify actor tool in the builder" width="620" />
+
+### 🔑 Connect providers from the browser
+
+Open **Settings**, pick a provider, paste its key and press **Save & test**. The key is checked right away (by listing models, which is free), encrypted with AES-256-GCM before it is stored, and never sent back to the browser; only its last 4 characters are shown. Changes apply immediately, with no restart. Models found by the test are suggested in the builder. **Add a custom provider** connects any OpenAI-compatible server (vLLM, LM Studio, LiteLLM, company gateways) by name and URL.
+
+<img src="screenshots/15-settings-providers.png" alt="Settings page with connected providers" width="760" />
+
+The encryption key is `SECRETS_KEY` (32 bytes, base64) if set, otherwise a `secrets.key` file created next to the database with owner-only permissions. Back up both together. Keys saved in Settings take priority over the environment variables above. Without any key the builder still works with the offline **Demo** model.
+
+## 🐞 Logs and debugging
+
+The **Logs** page shows every problem in one place: server errors, failed runs (with the agent and reason), provider errors, and crashes in your browser, which are sent to the server automatically. A page that crashes shows the error instead of going blank. If the live-updates stream is blocked by a proxy, chat falls back to polling and records a warning. Entries are also written, with secrets removed, to `logs/console.log` next to the database (JSON lines, rotated at 5 MB); **Download** exports the latest entries.
+
+<img src="screenshots/16-logs.png" alt="Logs page" width="760" />
 
 ## 🧠 How it works
 
@@ -180,7 +261,7 @@ agent-console/
 | Agent runtime | [agents-framework](https://github.com/agent-farmework/agents-framework): tools, approvals, guardrails, RAG, limits |
 | Server | Node 22, [Hono](https://hono.dev), Server-Sent Events, SQLite (`node:sqlite`) |
 | UI | React 19, Vite, Tailwind CSS 4, [Lucide](https://lucide.dev) icons |
-| Quality | Strict TypeScript, Vitest API tests, GitHub Actions CI, Playwright walkthrough |
+| Quality | Strict TypeScript, Vitest API tests, pre-push checks, CI workflow, Playwright walkthrough |
 
 ## 🔒 Security
 
@@ -227,15 +308,18 @@ Run `pnpm build`, then `pnpm start` (production mode) with a strong `ADMIN_PASSW
 
 - [x] Agents, live chat timeline, approvals inbox, run history and audit
 - [x] Guardrails, citations, light/dark and phone layouts
-- [x] CI on every push
-- [ ] Real model providers (Claude, OpenAI, local) selected by environment variable
-- [ ] Deployment guide with HTTPS
+- [x] Checks on every push (pre-push hook), plus a CI workflow for GitHub Actions
+- [x] Real model providers: Claude, OpenAI, OpenRouter, Gemini, Groq, Mistral, DeepSeek, xAI, Together, Ollama and any OpenAI-compatible server, connected from the browser
+- [x] Agent builder in the browser: tools, approval rules, knowledge upload, versions and rollback
+- [x] Deployment with HTTPS (Docker + Nginx)
 - [ ] Multiple users and roles
-- [ ] Upload your own documents to the Q&A agent
+- [ ] Scanned-PDF (OCR) upload and per-version knowledge snapshots
 
 ## 🤝 Contributing
 
-Issues and pull requests are welcome. Before opening a PR, run `pnpm test && pnpm build`.
+Issues and pull requests are welcome. `pnpm install` sets up a **pre-push hook** that runs `pnpm check` (tests, typecheck and build) before every push; run it yourself any time with `pnpm check`. Skip it once with `git push --no-verify`.
+
+The same checks are in `.github/workflows/ci.yml` and run on GitHub Actions wherever Actions is enabled.
 
 <div align="center">
 <br/>

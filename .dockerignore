@@ -1,0 +1,14 @@
+node_modules
+**/node_modules
+dist
+vendor/agents-framework/packages/*/dist
+data
+screenshots
+.git
+**/.git
+deploy
+test
+*.db
+.env
+vendor/skillware
+skillware-runner

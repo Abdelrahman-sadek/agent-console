@@ -1,3 +1,6 @@
 [submodule "vendor/agents-framework"]
 	path = vendor/agents-framework
 	url = https://github.com/agent-farmework/agents-framework
+[submodule "vendor/skillware"]
+	path = vendor/skillware
+	url = https://github.com/ARPAHLS/skillware.git

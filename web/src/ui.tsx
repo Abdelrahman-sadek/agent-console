@@ -1,6 +1,9 @@
 import { Bot, Brain, CheckCircle2, CircleAlert, CircleDot, Clock, Hand, Library, Loader2, ShieldAlert, Wrench, XCircle } from "lucide-react";
-import type { ReactNode } from "react";
-import type { AgentEvent } from "./api";
+import { Component, type ErrorInfo, type ReactNode } from "react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { report, type AgentEvent } from "./api";
+import { splitThoughts } from "./thoughts";
 
 export const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
 
@@ -116,6 +119,63 @@ export function Empty({ icon, title, children }: { icon: ReactNode; title: strin
       <div className="mb-3 rounded-2xl bg-panel-2 p-3 text-muted">{icon}</div>
       <p className="font-medium">{title}</p>
       {children && <div className="mt-1 max-w-sm text-sm text-muted">{children}</div>}
+    </div>
+  );
+}
+
+/** Display name for a run's agent; builder test runs use "<id>.draft". */
+export function agentName(agents: { id: string; name: string }[], id: string): string {
+  const draft = id.endsWith(".draft");
+  const base = draft ? id.slice(0, -6) : id;
+  const name = agents.find((a) => a.id === base)?.name ?? base;
+  return draft ? `${name} (test)` : name;
+}
+
+/** Shows a readable error instead of a blank page, and records it in Logs. */
+export class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state: { error: Error | null } = { error: null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    report("error", `Page crashed: ${error.message}`, { stack: `${error.stack ?? ""}\n--- component ---${info.componentStack ?? ""}` });
+  }
+  render() {
+    if (this.state.error === null) return this.props.children;
+    return (
+      <div className="mx-auto max-w-2xl px-4 py-12 sm:px-8">
+        <div className="rounded-2xl border border-rose-500/30 bg-rose-500/5 p-6">
+          <h1 className="flex items-center gap-2 text-lg font-semibold text-rose-700 dark:text-rose-300"><CircleAlert size={20} />This page hit an error</h1>
+          <p className="mt-2 text-sm text-muted">It was recorded in <a href="#/logs" className="text-brand underline">Logs</a>. You can go back or reload.</p>
+          <pre className="mt-4 max-h-48 overflow-auto rounded-xl bg-panel-2 p-3 text-xs whitespace-pre-wrap">{this.state.error.message}</pre>
+          <div className="mt-4 flex gap-2">
+            <Button onClick={() => { this.setState({ error: null }); window.history.back(); }} variant="ghost">Go back</Button>
+            <Button onClick={() => window.location.reload()}>Reload</Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+}
+
+/**
+ * Model answers are Markdown (**bold**, lists, tables, code). Rendered safely: raw HTML in
+ * the answer is shown as text, never run, and links open in a new tab.
+ */
+export function Answer({ text, className }: { text: string; className?: string }) {
+  const md = (t: string) => <Markdown remarkPlugins={[remarkGfm]} components={{ a: ({ node: _n, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" /> }}>{t}</Markdown>;
+  return (
+    <div className={cx("space-y-2", className)}>
+      {splitThoughts(text).map((part, i) =>
+        part.kind === "thought" ? (
+          // The model's reasoning: small and faint; hover (or tap / keyboard focus) to read it.
+          <div key={i} tabIndex={0} title="The model's reasoning (hover to read)" dir="auto"
+            className="md thought rounded-lg border-s-2 border-line ps-3 text-xs leading-relaxed text-muted opacity-35 transition-opacity duration-200 hover:opacity-100 focus:opacity-100 focus:outline-none">
+            <span className="mb-0.5 block text-[10px] font-semibold tracking-wide uppercase">Thinking</span>
+            {md(part.text)}
+          </div>
+        ) : (
+          <div key={i} className="md text-[15px] leading-relaxed" dir="auto">{md(part.text)}</div>
+        ),
+      )}
     </div>
   );
 }

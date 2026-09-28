@@ -1,0 +1,9 @@
+# Build context is the repo root; the runner only needs these.
+*
+!vendor/skillware
+!skillware-runner/runner.py
+!skillware-runner/requirements.txt
+vendor/skillware/.git
+vendor/skillware/tests
+vendor/skillware/docs
+vendor/skillware/assets
