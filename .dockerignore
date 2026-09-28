@@ -10,3 +10,5 @@ deploy
 test
 *.db
 .env
+vendor/skillware
+skillware-runner

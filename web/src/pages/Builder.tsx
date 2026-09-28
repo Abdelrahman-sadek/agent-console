@@ -1,6 +1,6 @@
 import { ArrowLeft, BookOpen, Brain, Download, GraduationCap, Globe, History as HistoryIcon, Lightbulb, Check, FileUp, History, Loader2, Plus, Rocket, RotateCcw, ShieldCheck, Trash2, Wrench } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { ApiError, api, del, post, put, upload, type ImportedSkill, type Integrations, type MemoryItem, type SkillInfo, type StoreActor, type AgentSpec, type Approval, type BuilderAgent, type CatalogItem, type Issue, type ProviderInfo, type ToolSpec } from "../api";
+import { ApiError, api, del, post, put, upload, type ImportedSkill, type Integrations, type MemoryItem, type SkillInfo, type SkillwareInfo, type StoreActor, type AgentSpec, type Approval, type BuilderAgent, type CatalogItem, type Issue, type ProviderInfo, type ToolSpec } from "../api";
 import { Button, Card, ago, cx } from "../ui";
 import { Conversation } from "./Chat";
 
@@ -64,7 +64,7 @@ function ModelPicker({ value, models, placeholder, onChange }: { value: string; 
 // ------------------------------------------------------------------ tools
 
 function toolTitle(t: ToolSpec, catalog: CatalogItem[]) {
-  return t.type === "http" ? t.name || "Web API call" : t.type === "apify_actor" ? t.name || "Apify actor" : (catalog.find((c) => c.type === t.type)?.label ?? t.type);
+  return t.type === "http" ? t.name || "Web API call" : t.type === "apify_actor" ? t.name || "Apify actor" : t.type === "skillware" ? `Skillware: ${t.skill.split("/").pop()?.replace(/_/g, " ")}` : (catalog.find((c) => c.type === t.type)?.label ?? t.type);
 }
 const fieldsFor = (t: ToolSpec) => (t.type === "http" || t.type === "apify_actor" ? t.params : t.type === "demo_refund" ? ["amount"] : []);
 
@@ -136,8 +136,28 @@ function ToolCard({ tool, index, catalog, onChange, onRemove, err }: { tool: Too
           </div>
         </div>
       )}
+      {tool.type === "skillware" && <SkillwareFields tool={tool} index={index} onChange={onChange} e={e} />}
       {tool.type === "apify_actor" && <ApifyFields tool={tool} index={index} onChange={onChange} e={e} />}
       <div className="mt-3 border-t border-line pt-3"><ApprovalEditor tool={tool} err={e} onChange={(approval) => onChange({ ...tool, approval })} /></div>
+    </div>
+  );
+}
+
+let skillwareCache: Promise<SkillwareInfo> | undefined;
+function SkillwareFields({ tool, index, onChange, e }: { tool: Extract<ToolSpec, { type: "skillware" }>; index: number; onChange: (t: ToolSpec) => void; e: (p: string) => string | undefined }) {
+  const [info, setInfo] = useState<SkillwareInfo | null>(null);
+  useEffect(() => { (skillwareCache ??= api<SkillwareInfo>("/api/builder/skillware")).then(setInfo).catch(() => setInfo({ available: false, skills: [], error: "Could not load Skillware skills." })); }, []);
+  const current = info?.skills.find((s) => s.id === tool.skill);
+  return (
+    <div className="mt-4 space-y-2">
+      {info && !info.available && <p className="rounded-xl bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">{info.error}</p>}
+      <Field label="Skill" id={`t${index}-sw`} error={e("skill")} hint={current ? <>{current.summary}{current.needsKeys.length > 0 && <span className="block">Uses your Gemini key from Settings when available.</span>}</> : undefined}>
+        <select id={`t${index}-sw`} className={inputCls} value={tool.skill} onChange={(ev) => onChange({ ...tool, skill: ev.target.value })}>
+          {!current && <option value={tool.skill}>{tool.skill}</option>}
+          {info?.skills.map((s) => <option key={s.id} value={s.id}>{s.id}</option>)}
+        </select>
+      </Field>
+      <p className="text-xs text-muted">Runs the real Skillware code on your server (<a href={`https://github.com/ARPAHLS/skillware/tree/main/skills/${tool.skill}`} target="_blank" rel="noreferrer" className="text-brand hover:underline">source ↗</a>). Its own instructions and rules are given to the agent.</p>
     </div>
   );
 }
@@ -205,6 +225,7 @@ function ApifyFields({ tool, index, onChange, e }: { tool: Extract<ToolSpec, { t
 }
 
 function newTool(type: ToolSpec["type"]): ToolSpec {
+  if (type === "skillware") return { type, skill: "security/prompt_injection_firewall", approval: { mode: "never" } };
   if (type === "apify_actor") return { type, name: "", description: "", actorId: "", input: '{"query": "{{query}}"}', params: ["query"], maxItems: 10, timeoutSecs: 60, approval: { mode: "always" } };
   if (type === "http") return { type, name: "", description: "", method: "GET", url: "https://", params: [], approval: { mode: "never" } };
   if (type === "demo_refund") return { type, approval: { mode: "threshold", field: "amount", over: 100 } };

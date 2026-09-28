@@ -3,6 +3,7 @@ import { createKnowledgeBase, hashingEmbedder, type KnowledgeBase } from "@agent
 import { piiGuardrail, promptInjectionGuardrail } from "@agent-farmework/security";
 import { ToolRuntime } from "@agent-farmework/tools";
 import { buildTools, type ApifyAccess } from "./catalog.js";
+import type { SkillwareClient } from "./skillware.js";
 import { conversationProvider } from "./conversation.js";
 import { skillContext, skillInstructions, skillTools } from "./skills.js";
 import type { ToolSpec } from "./spec.js";
@@ -36,7 +37,7 @@ export class AgentFactory {
   }
 
   /** `timeoutMs` stops a run that hangs (e.g. a provider that never answers). */
-  constructor(private readonly db: Database, readonly providerIds: ReadonlySet<string>, providers: LLMProvider[], private readonly timeoutMs = 120_000, private readonly apify: ApifyAccess = { baseURL: "https://api.apify.com" }) {
+  constructor(private readonly db: Database, readonly providerIds: ReadonlySet<string>, providers: LLMProvider[], private readonly timeoutMs = 120_000, private readonly apify: ApifyAccess = { baseURL: "https://api.apify.com" }, private readonly skillware?: { client: SkillwareClient; env: Record<string, string> }) {
     this.runtime = createRuntime({ providers, tools: new ToolRuntime({ audit: db.audit }), stateStore: db.runs, events: db.events });
   }
 
@@ -82,7 +83,13 @@ export class AgentFactory {
     if (spec.guardrails.injection) guardrails.push(promptInjectionGuardrail());
     // Skills bring their own tools (added only if the agent does not have them already).
     const skillToolSpecs = skillTools(spec.skills).filter((type) => !spec.tools.some((t) => t.type === type)).map((type) => ({ type, approval: { mode: "never" } }) as ToolSpec);
-    const tools = buildTools([...spec.tools, ...skillToolSpecs], kb, this.refunds, this.apify);
+    const usesSkillware = spec.tools.some((t) => t.type === "skillware");
+    const skillwareSkills = usesSkillware && this.skillware ? await this.skillware.client.skills() : [];
+    const tools = buildTools([...spec.tools, ...skillToolSpecs], kb, this.refunds, this.apify, this.skillware ? { ...this.skillware, skills: skillwareSkills } : undefined);
+    // Each Skillware skill ships its own directive and constitution: give them to the model.
+    const skillwareText = spec.tools.flatMap((t) => (t.type === "skillware" ? skillwareSkills.filter((s) => s.id === t.skill) : []))
+      .map((s) => `## Skillware skill: ${s.id} (tool ${s.id.split("/").pop()})\n${s.instructions.slice(0, 3_000)}${s.constitution ? `\nRules you must follow:\n${s.constitution.slice(0, 1_500)}` : ""}`)
+      .join("\n\n");
     const memory = spec.memory.enabled ? this.memoryFor(agentId) : undefined;
     if (memory !== undefined) tools.push(...memory.asTools());
 
@@ -91,7 +98,7 @@ export class AgentFactory {
       version: String(ref),
       description: spec.description,
       model: { providerId: spec.model.providerId, modelId: spec.model.modelId },
-      instructions: (memory === undefined ? spec.instructions : `${spec.instructions}\n\nYou have long-term memory. When the user tells you a stable fact about themselves (name, role, preferences, ongoing projects), save it with the remember tool. Relevant memories appear in your context; use them naturally. Never save secrets or passwords.`) + skillInstructions(spec.skills, spec.importedSkills),
+      instructions: (memory === undefined ? spec.instructions : `${spec.instructions}\n\nYou have long-term memory. When the user tells you a stable fact about themselves (name, role, preferences, ongoing projects), save it with the remember tool. Relevant memories appear in your context; use them naturally. Never save secrets or passwords.`) + skillInstructions(spec.skills, spec.importedSkills) + (skillwareText ? `\n\n# Skillware skills\n\n${skillwareText}` : ""),
       tools,
       permissions: ["*"],
       guardrails,

@@ -112,6 +112,7 @@ export async function upload<T>(path: string, form: FormData): Promise<T> {
 export type Approval = { mode: "never" } | { mode: "always" } | { mode: "threshold"; field: string; over: number };
 export type ToolSpec =
   | { type: "http"; name: string; description: string; method: "GET" | "POST"; url: string; params: string[]; approval: Approval }
+  | { type: "skillware"; skill: string; approval: Approval }
   | { type: "apify_actor"; name: string; description: string; actorId: string; input: string; params: string[]; maxItems: number; timeoutSecs: number; approval: Approval }
   | { type: "knowledge_search" | "read_web_page" | "check_site_rules" | "calculator" | "current_time" | "demo_lookup_order" | "demo_refund"; approval: Approval };
 
@@ -219,3 +220,4 @@ export interface Template { id: string; title: string; summary: string; needs?: 
 export interface MemoryItem { id: string; content: string; kind: string; createdAt: string }
 export interface ImportedSkill { title: string; directive: string; constitution: string; source: string }
 export interface SkillInfo { id: string; title: string; summary: string; tools: string[]; rules: string[]; credit: string | null }
+export interface SkillwareInfo { available: boolean; error?: string; skills: { id: string; title: string; summary: string; needsKeys: string[]; version: string | null }[] }

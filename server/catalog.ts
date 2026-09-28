@@ -5,6 +5,10 @@ import { z } from "zod";
 import type { ApprovalSpec, ToolSpec } from "./spec.js";
 import { fetchPageText } from "./webpage.js";
 import { robotsVerdict } from "./skills.js";
+import { checkUrlParams, jsonSchemaToZod, skillwareToolName, type SkillwareClient, type SkillwareSkill } from "./skillware.js";
+
+/** What Skillware tools need at build time. */
+export interface SkillwareAccess { client: SkillwareClient; skills: SkillwareSkill[]; env: Record<string, string> }
 
 /** What the builder UI offers. Every tool the model can use comes from here. */
 export const CATALOG = [
@@ -12,6 +16,7 @@ export const CATALOG = [
   { type: "apify_actor", label: "Apify actor", description: "Run a ready-made Apify tool (scrapers, search, data extraction). Needs an Apify token in Settings; asks for approval by default.", configurable: true },
   { type: "read_web_page", label: "Read web page", description: "Open any public https page and read it as clean text (private addresses are blocked).", configurable: false },
   { type: "check_site_rules", label: "Website permission check", description: "Checks a site's robots.txt and gives a conservative verdict before any scraping (adapted from Skillware).", configurable: false },
+  { type: "skillware", label: "Skillware skill", description: "Run a real Skillware skill (Python): prompt-injection firewall, dark-pattern guard, ToS evaluator, context optimizer and more.", configurable: true },
   { type: "knowledge_search", label: "Search knowledge", description: "Search this agent's uploaded documents and cite them.", configurable: false },
   { type: "calculator", label: "Calculator", description: "Exact arithmetic: + − × ÷ % ^ and parentheses.", configurable: false },
   { type: "current_time", label: "Current date & time", description: "Today's date and time (UTC and Cairo).", configurable: false },
@@ -129,13 +134,29 @@ function apifyTool(t: Extract<ToolSpec, { type: "apify_actor" }>, apify: ApifyAc
   }) as AnyTool;
 }
 
-export function buildTools(specs: readonly ToolSpec[], kb: KnowledgeBase | undefined, refunds: Map<string, string>, apify: ApifyAccess = { baseURL: "https://api.apify.com" }): AnyTool[] {
+export function buildTools(specs: readonly ToolSpec[], kb: KnowledgeBase | undefined, refunds: Map<string, string>, apify: ApifyAccess = { baseURL: "https://api.apify.com" }, skillware?: SkillwareAccess): AnyTool[] {
   return specs.map((t): AnyTool => {
     switch (t.type) {
       case "http":
         return httpTool(t);
       case "apify_actor":
         return apifyTool(t, apify);
+      case "skillware": {
+        const skill = skillware?.skills.find((s) => s.id === t.skill);
+        if (skillware === undefined || skill === undefined) throw new Error(`Skillware skill ${t.skill} is not available (is the skillware-runner running?)`);
+        const approval = approvalOf<Record<string, unknown>>(t.approval);
+        const env = Object.fromEntries(Object.entries(skillware.env).filter(([k]) => k in skill.env));
+        return defineTool<Record<string, unknown>, unknown>({
+          name: skillwareToolName(skill.id),
+          description: `${skill.summary || skill.description}`.slice(0, 1_000),
+          input: jsonSchemaToZod(skill.parameters) as z.ZodType<Record<string, unknown>>,
+          ...(approval === undefined ? {} : { approval }),
+          execute: async (params) => {
+            await checkUrlParams(params, process.env.READER_ALLOW_PRIVATE_FOR_TESTS === "1");
+            return skillware.client.run(skill.id, params, env);
+          },
+        }) as AnyTool;
+      }
       case "knowledge_search":
         if (kb === undefined) throw new Error("knowledge_search needs knowledge enabled");
         return kb.asTool({ name: "knowledge_search", description: "Search this agent's documents. Cite results as [n].", k: 4 }) as AnyTool;

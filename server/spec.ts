@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { SKILLS } from "./skills.js";
+import { skillwareToolName } from "./skillware.js";
 
 /** When a tool call must wait for a human. */
 export const ApprovalSpec = z.discriminatedUnion("mode", [
@@ -41,6 +42,8 @@ export const ToolSpec = z.discriminatedUnion("type", [
   z.object({ type: z.literal("knowledge_search"), approval }),
   z.object({ type: z.literal("read_web_page"), approval }),
   z.object({ type: z.literal("check_site_rules"), approval }),
+  /** A real Skillware skill run by the skillware-runner service, e.g. "security/prompt_injection_firewall". */
+  z.object({ type: z.literal("skillware"), skill: z.string().regex(/^[a-z_]+\/[a-z0-9_]+$/, "a Skillware skill id like category/name"), approval }),
   z.object({ type: z.literal("calculator"), approval }),
   z.object({ type: z.literal("current_time"), approval }),
   z.object({ type: z.literal("demo_lookup_order"), approval }),
@@ -112,6 +115,7 @@ export function toolNameOf(t: ToolSpec): string {
   switch (t.type) {
     case "http":
     case "apify_actor": return t.name;
+    case "skillware": return skillwareToolName(t.skill);
     case "demo_lookup_order": return "lookup_order";
     case "demo_refund": return "issue_refund";
     default: return t.type;

@@ -10,6 +10,7 @@ import { createAgents, operator } from "./agents.js";
 import { customAgentInfo, registerBuilder } from "./builder.js";
 import type { Database } from "./db.js";
 import { AgentFactory } from "./factory.js";
+import { SkillwareClient } from "./skillware.js";
 import { loadProviders, type ProviderInfo } from "./providers.js";
 import { ProviderSecrets, loadMasterKey } from "./secrets.js";
 import { registerProviderSettings } from "./settings.js";
@@ -34,6 +35,8 @@ export interface LiveProviders {
   providerInfo: ProviderInfo[];
   /** Whether an Apify token is available (Settings or APIFY_TOKEN). */
   apifyConfigured: boolean;
+  /** The skillware-runner service, when SKILLWARE_URL and SKILLWARE_TOKEN are set. */
+  skillware?: SkillwareClient;
 }
 
 const SESSION_COOKIE = "ac_session";
@@ -105,13 +108,17 @@ export async function createApp(options: AppOptions) {
   const { agents, info } = await createAgents(db);
   const env = options.env ?? process.env;
   const log = options.log ?? new IssueLog();
+  const skillwareClient = env.SKILLWARE_URL && env.SKILLWARE_TOKEN ? new SkillwareClient(env.SKILLWARE_URL, env.SKILLWARE_TOKEN) : undefined;
   const secrets = new ProviderSecrets(db.db, options.masterKey ?? loadMasterKey(":memory:", {}));
   const build = (): LiveProviders => {
     const saved = secrets.all();
     const { providers, info } = loadProviders(env, saved);
     const apifyToken = saved["apify"]?.apiKey || env.APIFY_TOKEN || undefined;
     const apify = { baseURL: env.APIFY_BASE_URL ?? "https://api.apify.com", ...(apifyToken ? { token: apifyToken } : {}) };
-    return { factory: new AgentFactory(db, new Set(providers.map((p) => p.id)), providers, Number(env.RUN_TIMEOUT_MS ?? 120_000), apify), providerInfo: info, apifyConfigured: apifyToken !== undefined };
+    // Skillware skills that can use Gemini get the key saved in Settings (only if they declare it).
+    const googleKey = saved["gemini"]?.apiKey || env.GEMINI_API_KEY || env.GOOGLE_API_KEY;
+    const skillware = skillwareClient ? { client: skillwareClient, env: (googleKey ? { GOOGLE_API_KEY: googleKey, GEMINI_API_KEY: googleKey } : {}) as Record<string, string> } : undefined;
+    return { factory: new AgentFactory(db, new Set(providers.map((p) => p.id)), providers, Number(env.RUN_TIMEOUT_MS ?? 120_000), apify, skillware), providerInfo: info, apifyConfigured: apifyToken !== undefined, ...(skillwareClient ? { skillware: skillwareClient } : {}) };
   };
   const live: LiveProviders = build();
   const reload = () => Object.assign(live, build());

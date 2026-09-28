@@ -89,6 +89,17 @@ export function registerBuilder(app: Hono, deps: { db: Database; live: LiveProvi
     }
   });
 
+  // Real Skillware skills from the skillware-runner service.
+  app.get("/api/builder/skillware", async (c) => {
+    if (live.skillware === undefined) return c.json({ available: false, skills: [], error: "The Skillware runner is not set up on this server." });
+    try {
+      const skills = await live.skillware.skills(c.req.query("refresh") === "1");
+      return c.json({ available: true, skills: skills.map((s) => ({ id: s.id, title: s.title, summary: s.summary, needsKeys: Object.keys(s.env), version: s.version ?? null })) });
+    } catch (error) {
+      return c.json({ available: false, skills: [], error: error instanceof Error ? error.message : "The Skillware runner is not reachable." });
+    }
+  });
+
   app.get("/api/builder/templates", (c) => c.json(TEMPLATES.map(({ spec: _s, ...t }) => t)));
 
   app.get("/api/builder/agents", (c) =>
@@ -130,6 +141,12 @@ export function registerBuilder(app: Hono, deps: { db: Database; live: LiveProvi
     const row = load(c.req.param("id"));
     if (row === undefined) return c.json({ error: "Agent not found." }, 404);
     const note = z.object({ note: z.string().max(200).default("") }).parse(await c.req.json().catch(() => ({}))).note;
+    if (row.draft.tools.some((t) => t.type === "skillware")) {
+      const ids = row.draft.tools.flatMap((t) => (t.type === "skillware" ? [t.skill] : []));
+      const available = live.skillware ? await live.skillware.skills().then((s) => s.map((x) => x.id)).catch(() => [] as string[]) : [];
+      const missing = ids.filter((id) => !available.includes(id));
+      if (missing.length) return c.json({ error: `Skillware skill not available on the server: ${missing.join(", ")}.` }, 400);
+    }
     if (row.draft.tools.some((t) => t.type === "apify_actor") && !live.apifyConfigured) return c.json({ error: "This agent uses an Apify actor. Add your Apify token in Settings → Integrations first." }, 400);
     if (!isConfigured(row.draft.model.providerId)) return c.json({ error: `The model provider "${row.draft.model.providerId}" is not configured. Add it in Settings.` }, 400);
     try {

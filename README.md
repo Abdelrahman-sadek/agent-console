@@ -12,7 +12,7 @@ A web console for **[agents-framework](https://github.com/agent-farmework/agents
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=black)
 ![Tailwind](https://img.shields.io/badge/Tailwind-4-06b6d4?logo=tailwindcss&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-38%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-41%20passing-brightgreen)
 
 [**Quick start**](#-quick-start) · [**Features**](#-features) · [**Build an agent**](#-build-your-own-agent) · [**Screenshots**](#-screenshots) · [**How it works**](#-how-it-works) · [**FAQ**](#-faq)
 
@@ -180,6 +180,27 @@ pnpm test          # API tests
 Skills package *how to do a job* (a directive), *rules it must never break* (a constitution) and *the tools it needs*, so you equip an agent instead of rewriting its prompt. The idea and several skills are adapted from [Skillware](https://github.com/ARPAHLS/skillware) (MIT). Where safety matters the check is code, not a prompt: the website-permission verdict comes from parsing `robots.txt`, and the coach's crisis check is a deterministic English/Arabic matcher that runs before the model sees the message.
 
 <img src="screenshots/19-skills.png" alt="Skills in the builder" width="620" />
+
+### 🐍 Real Skillware skills (Python)
+
+The **Skillware skill** tool runs the actual code from [Skillware](https://github.com/ARPAHLS/skillware) (MIT, vendored as a git submodule in `vendor/skillware`) in a separate private container, `skillware-runner` (Python 3.12, numpy, fastembed, trafilatura, google-genai). Enabled skills:
+
+| Skill | What it does |
+| --- | --- |
+| `security/prompt_injection_firewall` | Offline prompt-injection detection with evidence and sanitisation |
+| `security/deceptive_ui_guard` | Finds dark patterns and deceptive UI in a page's HTML |
+| `compliance/tos_evaluator` | robots.txt + terms-of-service check before automated access |
+| `wellness/mental_coach` | Deterministic crisis triage and grounded, non-clinical coaching |
+| `data_engineering/semantic_web_proxy` | Web page to token-efficient Markdown/JSON |
+| `data_engineering/novelty_extractor` | Filters text by semantic novelty (local embeddings) |
+| `optimization/context_optimizer` | Picks the most relevant spans of a long document for a goal |
+| `optimization/prompt_rewriter` | Compresses long prompts |
+| `monitoring/token_limiter`, `monitoring/kpi_gate` | Budget and KPI gates |
+| `linguistics/korean_slang` | Korean slang interpreter |
+
+Each skill's own instructions and constitution are given to the agent. The runner has no public port and sits on its own network with only the console; calls need a shared token (`SKILLWARE_TOKEN`, created on deploy), every URL parameter must be a public https address, and your Gemini key (from Settings) is passed only to skills that declare it. Left out on purpose: wallet/transaction and email-sending skills, and skills that need services the server does not run.
+
+<img src="screenshots/20-skillware-tool.png" alt="Skillware skill tool" width="560" />
 
 ### 🕷️ Apify actors
 
