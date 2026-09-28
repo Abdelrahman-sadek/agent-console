@@ -11,7 +11,7 @@ export interface Page { url: string; title: string; text: string; truncated: boo
  * https only, every hop (including redirects) checked against private/reserved addresses,
  * HTML or plain text only, size-capped, 15 s timeout.
  */
-export async function fetchPageText(input: string, opts: { maxChars?: number; allowHttpForTests?: boolean } = {}): Promise<Page> {
+export async function fetchPageText(input: string, opts: { maxChars?: number; allowHttpForTests?: boolean; raw?: boolean } = {}): Promise<Page> {
   let url = input.trim();
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     const host = new URL(url).hostname;
@@ -38,7 +38,8 @@ export async function fetchPageText(input: string, opts: { maxChars?: number; al
     const isHtml = /html/i.test(type);
     const title = (isHtml ? /<title[^>]*>([\s\S]*?)<\/title>/i.exec(raw)?.[1] : undefined)?.replace(/\s+/g, " ").trim() || new URL(url).hostname;
     const body = isHtml ? htmlToText(raw.replace(/<(nav|header|footer|aside|noscript|svg|form)[^>]*>[\s\S]*?<\/\1>/gi, " ")) : raw;
-    const text = body.replace(/[ \t]+/g, " ").replace(/\n\s*\n\s*\n+/g, "\n\n").trim();
+    // raw: keep plain text exactly (YAML/Markdown files where indentation matters).
+    const text = opts.raw && !isHtml ? body : body.replace(/[ \t]+/g, " ").replace(/\n\s*\n\s*\n+/g, "\n\n").trim();
     const max = opts.maxChars ?? 12_000;
     return { url, title: title.slice(0, 120), text: text.slice(0, max), truncated: text.length > max };
   }

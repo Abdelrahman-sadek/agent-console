@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { SKILLS } from "./skills.js";
 
 /** When a tool call must wait for a human. */
 export const ApprovalSpec = z.discriminatedUnion("mode", [
@@ -39,6 +40,7 @@ export const ToolSpec = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("knowledge_search"), approval }),
   z.object({ type: z.literal("read_web_page"), approval }),
+  z.object({ type: z.literal("check_site_rules"), approval }),
   z.object({ type: z.literal("calculator"), approval }),
   z.object({ type: z.literal("current_time"), approval }),
   z.object({ type: z.literal("demo_lookup_order"), approval }),
@@ -56,6 +58,12 @@ export const AgentSpec = z
     knowledge: z.object({ enabled: z.boolean().default(false), k: z.number().int().min(1).max(8).default(3) }).default({ enabled: false, k: 3 }),
     /** Long-term memory: the agent saves stable facts about the user and recalls them in later chats. */
     memory: z.object({ enabled: z.boolean().default(false) }).default({ enabled: false }),
+    /** Built-in skills (see server/skills.ts) and skills imported from Skillware bundles. */
+    skills: z.array(z.string().max(40)).max(10).default([]),
+    importedSkills: z
+      .array(z.object({ title: z.string().trim().min(2).max(80), directive: z.string().max(6_000), constitution: z.string().max(3_000).default(""), source: z.string().url().max(500) }))
+      .max(5)
+      .default([]),
     guardrails: z.object({ pii: z.boolean().default(true), injection: z.boolean().default(true) }).default({ pii: true, injection: true }),
     limits: z
       .object({
@@ -90,6 +98,9 @@ export const AgentSpec = z
       if (t.approval.mode === "threshold" && !thresholdFields(t).includes(t.approval.field)) {
         ctx.addIssue({ code: "custom", path: ["tools", i, "approval", "field"], message: `"${t.approval.field}" is not an input of this tool` });
       }
+    }
+    for (const [i, id] of spec.skills.entries()) {
+      if (!SKILLS.some((s) => s.id === id)) ctx.addIssue({ code: "custom", path: ["skills", i], message: `unknown skill "${id}"` });
     }
     if (spec.tools.some((t) => t.type === "knowledge_search") && !spec.knowledge.enabled) {
       ctx.addIssue({ code: "custom", path: ["knowledge"], message: "knowledge search needs knowledge enabled" });

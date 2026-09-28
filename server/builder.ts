@@ -4,6 +4,7 @@ import type { Hono } from "hono";
 import { z } from "zod";
 import { CATALOG } from "./catalog.js";
 import { TEMPLATES } from "./templates.js";
+import { SKILLS, skillFromBundle } from "./skills.js";
 import { fetchPageText } from "./webpage.js";
 import type { AgentRow, Database } from "./db.js";
 import type { LiveProviders } from "./app.js";
@@ -68,6 +69,26 @@ export function registerBuilder(app: Hono, deps: { db: Database; live: LiveProvi
 
   app.get("/api/builder/models", (c) => c.json(live.providerInfo));
   app.get("/api/builder/catalog", (c) => c.json(CATALOG));
+  app.get("/api/builder/skills", (c) => c.json(SKILLS.map((s) => ({ id: s.id, title: s.title, summary: s.summary, tools: s.tools ?? [], rules: s.constitution, credit: s.credit ?? null }))));
+
+  // Preview a Skillware skill from its GitHub folder: instructions + constitution only (its Python is not run).
+  app.post("/api/builder/skills/import", async (c) => {
+    const url = z.object({ url: z.string().trim().url().max(500) }).safeParse(await c.req.json().catch(() => ({})));
+    const m = url.success ? /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(?:tree|blob)\/([\w.\/-]+?)\/(skills\/[\w\/-]+?)\/?(?:manifest\.yaml|instructions\.md)?$/.exec(url.data.url) : null;
+    if (m === null) return c.json({ error: "Paste a GitHub link to a skill folder, e.g. https://github.com/ARPAHLS/skillware/tree/main/skills/compliance/pii_masker" }, 400);
+    const [, owner, repo, ref, path] = m as unknown as [string, string, string, string, string];
+    const raw = (file: string) => `https://raw.githubusercontent.com/${owner}/${repo}/${ref}/${path}/${file}`;
+    try {
+      const manifestYaml = (await fetchPageText(raw("manifest.yaml"), { maxChars: 50_000, raw: true })).text;
+      const instructions = await fetchPageText(raw("instructions.md"), { maxChars: 6_000, raw: true }).then((p) => p.text).catch(() => "");
+      const skill = skillFromBundle(manifestYaml, instructions, `https://github.com/${owner}/${repo}/tree/${ref}/${path}`);
+      if (!skill.directive) return c.json({ error: "That folder has no manifest description or instructions.md." }, 400);
+      return c.json({ skill, note: "Imported as instructions and rules only. The skill's Python code is not run in the console." });
+    } catch (error) {
+      return c.json({ error: `Could not read that skill: ${error instanceof Error ? error.message : String(error)}` }, 400);
+    }
+  });
+
   app.get("/api/builder/templates", (c) => c.json(TEMPLATES.map(({ spec: _s, ...t }) => t)));
 
   app.get("/api/builder/agents", (c) =>

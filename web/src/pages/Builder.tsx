@@ -1,6 +1,6 @@
-import { ArrowLeft, BookOpen, Brain, Globe, History as HistoryIcon, Lightbulb, Check, FileUp, History, Loader2, Plus, Rocket, RotateCcw, ShieldCheck, Trash2, Wrench } from "lucide-react";
+import { ArrowLeft, BookOpen, Brain, Download, GraduationCap, Globe, History as HistoryIcon, Lightbulb, Check, FileUp, History, Loader2, Plus, Rocket, RotateCcw, ShieldCheck, Trash2, Wrench } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { ApiError, api, del, post, put, upload, type Integrations, type MemoryItem, type StoreActor, type AgentSpec, type Approval, type BuilderAgent, type CatalogItem, type Issue, type ProviderInfo, type ToolSpec } from "../api";
+import { ApiError, api, del, post, put, upload, type ImportedSkill, type Integrations, type MemoryItem, type SkillInfo, type StoreActor, type AgentSpec, type Approval, type BuilderAgent, type CatalogItem, type Issue, type ProviderInfo, type ToolSpec } from "../api";
 import { Button, Card, ago, cx } from "../ui";
 import { Conversation } from "./Chat";
 
@@ -285,6 +285,68 @@ function Knowledge({ agent, spec, set, onAgent }: { agent: BuilderAgent; spec: A
   );
 }
 
+// ------------------------------------------------------------------ skills
+
+function SkillsSection({ spec, set }: { spec: AgentSpec; set: (s: AgentSpec) => void }) {
+  const [skills, setSkills] = useState<SkillInfo[]>([]);
+  const [url, setUrl] = useState("");
+  const [preview, setPreview] = useState<{ skill: ImportedSkill; note: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api<SkillInfo[]>("/api/builder/skills").then(setSkills).catch(() => {}); }, []);
+  const toggle = (id: string, on: boolean) => set({ ...spec, skills: on ? [...spec.skills, id] : spec.skills.filter((x) => x !== id) });
+  const importSkill = async () => {
+    setBusy(true); setError(null); setPreview(null);
+    try { setPreview(await post<{ skill: ImportedSkill; note: string }>("/api/builder/skills/import", { url: url.trim() })); } catch (e) { setError(e instanceof Error ? e.message : "Import failed."); } finally { setBusy(false); }
+  };
+  return (
+    <Section icon={<GraduationCap size={18} />} title="Skills" subtitle="Ready-made know-how you can switch on: how to do a job, the rules it must follow, and the tools it needs.">
+      <div className="grid gap-3 sm:grid-cols-2">
+        {skills.map((sk) => (
+          <div key={sk.id} className={cx("rounded-xl border p-3", spec.skills.includes(sk.id) ? "border-brand/50 bg-brand/5" : "border-line")}>
+            <Toggle checked={spec.skills.includes(sk.id)} label={sk.title} hint={sk.summary} onChange={(on) => toggle(sk.id, on)} />
+            {(sk.tools.length > 0 || sk.credit) && (
+              <p className="mt-2 ps-12 text-[11px] text-muted">
+                {sk.tools.length > 0 && <>Adds: {sk.tools.map((t) => <code key={t} className="me-1 rounded bg-panel-2 px-1">{t}</code>)}</>}
+                {sk.credit && <span className="block">{sk.credit}</span>}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+      {spec.importedSkills.length > 0 && (
+        <ul className="divide-y divide-line rounded-xl border border-line">
+          {spec.importedSkills.map((sk, i) => (
+            <li key={sk.source + i} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+              <Download size={15} className="text-muted" />
+              <span className="min-w-0 flex-1"><span className="block font-medium">{sk.title}</span><a href={sk.source} target="_blank" rel="noreferrer" className="block truncate text-xs text-brand hover:underline">{sk.source}</a></span>
+              <button aria-label={`Remove ${sk.title}`} onClick={() => set({ ...spec, importedSkills: spec.importedSkills.filter((_, j) => j !== i) })} className="rounded-lg p-1 text-muted hover:text-rose-600"><Trash2 size={15} /></button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <details className="rounded-xl border border-line px-4 py-3">
+        <summary className="cursor-pointer text-sm font-medium">Import a skill from Skillware</summary>
+        <p className="mt-2 text-xs text-muted">Paste a GitHub link to a skill folder from <a href="https://github.com/ARPAHLS/skillware/tree/main/skills" target="_blank" rel="noreferrer" className="text-brand underline">Skillware</a>. Its instructions and rules are added to the agent; its Python code is not run.</p>
+        <div className="mt-2 flex gap-2">
+          <input aria-label="Skill link" className={cx(inputCls, "font-mono text-xs")} placeholder="https://github.com/ARPAHLS/skillware/tree/main/skills/compliance/pii_masker" value={url} onChange={(e) => setUrl(e.target.value)} />
+          <Button variant="ghost" disabled={busy || !url.trim()} onClick={() => void importSkill()}>{busy && <Loader2 size={15} className="animate-spin" />}Preview</Button>
+        </div>
+        {error && <p className="mt-2 text-sm text-rose-600 dark:text-rose-300">{error}</p>}
+        {preview && (
+          <div className="mt-3 space-y-2 rounded-xl bg-panel-2 p-3 text-sm">
+            <p className="font-medium">{preview.skill.title}</p>
+            <pre className="max-h-40 overflow-auto whitespace-pre-wrap text-xs text-muted">{preview.skill.directive}</pre>
+            {preview.skill.constitution && <pre className="max-h-28 overflow-auto whitespace-pre-wrap text-xs">{preview.skill.constitution}</pre>}
+            <p className="text-xs text-amber-700 dark:text-amber-300">{preview.note}</p>
+            <Button disabled={spec.importedSkills.length >= 5} onClick={() => { set({ ...spec, importedSkills: [...spec.importedSkills, preview.skill] }); setPreview(null); setUrl(""); }}>Add to this agent</Button>
+          </div>
+        )}
+      </details>
+    </Section>
+  );
+}
+
 // ------------------------------------------------------------------ memory
 
 function MemorySection({ agentId, spec, set }: { agentId: string; spec: AgentSpec; set: (s: AgentSpec) => void }) {
@@ -474,6 +536,7 @@ export function BuilderPage({ id, onPublished }: { id: string; onPublished: () =
           </Section>
 
           <Knowledge agent={agent} spec={spec} set={set} onAgent={setAgent} />
+          <SkillsSection spec={spec} set={set} />
           <MemorySection agentId={agent.id} spec={spec} set={set} />
           {err("knowledge") && <p className="-mt-3 text-sm text-rose-600 dark:text-rose-300">{err("knowledge")}</p>}
 

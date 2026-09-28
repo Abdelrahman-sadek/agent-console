@@ -4,12 +4,14 @@ import { defineTool, type AnyTool, type ToolApproval } from "@agent-farmework/to
 import { z } from "zod";
 import type { ApprovalSpec, ToolSpec } from "./spec.js";
 import { fetchPageText } from "./webpage.js";
+import { robotsVerdict } from "./skills.js";
 
 /** What the builder UI offers. Every tool the model can use comes from here. */
 export const CATALOG = [
   { type: "http", label: "Web API call", description: "Call one HTTPS API you allow (only that host is reachable; private addresses are blocked).", configurable: true },
   { type: "apify_actor", label: "Apify actor", description: "Run a ready-made Apify tool (scrapers, search, data extraction). Needs an Apify token in Settings; asks for approval by default.", configurable: true },
   { type: "read_web_page", label: "Read web page", description: "Open any public https page and read it as clean text (private addresses are blocked).", configurable: false },
+  { type: "check_site_rules", label: "Website permission check", description: "Checks a site's robots.txt and gives a conservative verdict before any scraping (adapted from Skillware).", configurable: false },
   { type: "knowledge_search", label: "Search knowledge", description: "Search this agent's uploaded documents and cite them.", configurable: false },
   { type: "calculator", label: "Calculator", description: "Exact arithmetic: + − × ÷ % ^ and parentheses.", configurable: false },
   { type: "current_time", label: "Current date & time", description: "Today's date and time (UTC and Cairo).", configurable: false },
@@ -145,6 +147,29 @@ export function buildTools(specs: readonly ToolSpec[], kb: KnowledgeBase | undef
           input: z.object({ url: z.string().url().max(2_000) }),
           ...(approval === undefined ? {} : { approval }),
           execute: async ({ url }) => fetchPageText(url, { allowHttpForTests: process.env.READER_ALLOW_PRIVATE_FOR_TESTS === "1" }),
+        }) as AnyTool;
+      }
+      case "check_site_rules": {
+        const approval = approvalOf<{ url: string }>(t.approval);
+        return defineTool({
+          name: "check_site_rules",
+          description: "Check whether automated access (scraping, crawling, bulk reading) to a URL is permitted by the site's robots.txt. Returns ALLOWED, CAUTION, DISALLOWED or INSUFFICIENT_EVIDENCE.",
+          input: z.object({ url: z.string().url().max(2_000) }),
+          ...(approval === undefined ? {} : { approval }),
+          execute: async ({ url }) => {
+            const target = new URL(url);
+            const robotsUrl = `${target.origin}/robots.txt`;
+            const testing = process.env.READER_ALLOW_PRIVATE_FOR_TESTS === "1";
+            try {
+              const robots = await fetchPageText(robotsUrl, { maxChars: 200_000, allowHttpForTests: testing });
+              const { verdict, rule } = robotsVerdict(robots.text, target.pathname + target.search);
+              return { url, robotsUrl, verdict, rule, note: verdict === "ALLOWED" ? "robots.txt allows this path for general bots. Terms of service can still forbid scraping; check them for commercial or bulk use." : verdict === "DISALLOWED" ? "robots.txt disallows this path. Do not access it automatically." : "robots.txt has no rules for general bots; treat with caution." };
+            } catch (error) {
+              const msg = error instanceof Error ? error.message : String(error);
+              if (/HTTP 404/.test(msg)) return { url, robotsUrl, verdict: "CAUTION", rule: null, note: "The site has no robots.txt. That is not permission: check its terms of service before automated access." };
+              return { url, robotsUrl, verdict: "INSUFFICIENT_EVIDENCE", rule: null, note: `robots.txt could not be read (${msg}).` };
+            }
+          },
         }) as AnyTool;
       }
       case "calculator":

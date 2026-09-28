@@ -4,6 +4,8 @@ import { piiGuardrail, promptInjectionGuardrail } from "@agent-farmework/securit
 import { ToolRuntime } from "@agent-farmework/tools";
 import { buildTools, type ApifyAccess } from "./catalog.js";
 import { conversationProvider } from "./conversation.js";
+import { skillContext, skillInstructions, skillTools } from "./skills.js";
+import type { ToolSpec } from "./spec.js";
 import { createMemory, type Memory } from "@agent-farmework/memory";
 import type { Database } from "./db.js";
 import type { AgentSpec } from "./spec.js";
@@ -78,7 +80,9 @@ export class AgentFactory {
     const guardrails: Guardrail[] = [];
     if (spec.guardrails.pii) guardrails.push(piiGuardrail());
     if (spec.guardrails.injection) guardrails.push(promptInjectionGuardrail());
-    const tools = buildTools(spec.tools, kb, this.refunds, this.apify);
+    // Skills bring their own tools (added only if the agent does not have them already).
+    const skillToolSpecs = skillTools(spec.skills).filter((type) => !spec.tools.some((t) => t.type === type)).map((type) => ({ type, approval: { mode: "never" } }) as ToolSpec);
+    const tools = buildTools([...spec.tools, ...skillToolSpecs], kb, this.refunds, this.apify);
     const memory = spec.memory.enabled ? this.memoryFor(agentId) : undefined;
     if (memory !== undefined) tools.push(...memory.asTools());
 
@@ -87,11 +91,11 @@ export class AgentFactory {
       version: String(ref),
       description: spec.description,
       model: { providerId: spec.model.providerId, modelId: spec.model.modelId },
-      instructions: memory === undefined ? spec.instructions : `${spec.instructions}\n\nYou have long-term memory. When the user tells you a stable fact about themselves (name, role, preferences, ongoing projects), save it with the remember tool. Relevant memories appear in your context; use them naturally. Never save secrets or passwords.`,
+      instructions: (memory === undefined ? spec.instructions : `${spec.instructions}\n\nYou have long-term memory. When the user tells you a stable fact about themselves (name, role, preferences, ongoing projects), save it with the remember tool. Relevant memories appear in your context; use them naturally. Never save secrets or passwords.`) + skillInstructions(spec.skills, spec.importedSkills),
       tools,
       permissions: ["*"],
       guardrails,
-      context: [conversationProvider(), ...(memory === undefined ? [] : [memory.asContextProvider({ k: 20, minScore: -1 })] /* all saved facts (small per agent), most relevant first */), ...(kb === undefined ? [] : [kb.asContextProvider({ k: spec.knowledge.k, minScore: 0.1 })])],
+      context: [...skillContext(spec.skills), conversationProvider(), ...(memory === undefined ? [] : [memory.asContextProvider({ k: 20, minScore: -1 })] /* all saved facts (small per agent), most relevant first */), ...(kb === undefined ? [] : [kb.asContextProvider({ k: spec.knowledge.k, minScore: 0.1 })])],
       limits: { maxSteps: spec.limits.maxSteps, maxToolCalls: spec.limits.maxToolCalls, maxCost: spec.limits.maxCost, timeoutMs: this.timeoutMs },
       runtime: this.runtime,
     });

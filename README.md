@@ -12,7 +12,7 @@ A web console for **[agents-framework](https://github.com/agent-farmework/agents
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=black)
 ![Tailwind](https://img.shields.io/badge/Tailwind-4-06b6d4?logo=tailwindcss&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-33%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-38%20passing-brightgreen)
 
 [**Quick start**](#-quick-start) · [**Features**](#-features) · [**Build an agent**](#-build-your-own-agent) · [**Screenshots**](#-screenshots) · [**How it works**](#-how-it-works) · [**FAQ**](#-faq)
 
@@ -88,6 +88,7 @@ No code needed. Click **New agent**, pick a **template** (web page reader, docum
 | **Tools** | **Read web page** (any public https page as clean text), Web API call (HTTPS, only its own host, private addresses blocked), **Apify actors** (thousands of ready-made scrapers and search tools, picked from the live Apify Store), knowledge search, calculator, date & time, demo order tools |
 | **Approval rules** | Per tool: never, always, or **only when a value is over a limit** (e.g. `amount over 100`) |
 | **Knowledge** | Upload PDF, TXT, Markdown, HTML, CSV or JSON, paste text, or **add a web page by URL**. Answers cite them |
+| **Skills** | Switch on ready-made know-how: *Cite sources*, *Arabic & English*, *Website permission check* (real robots.txt check with a conservative verdict), *Scam & dark-pattern check*, *Supportive coach* (a built-in crisis check in English and Arabic runs before the model), *Concise answers*. Or import a skill from [Skillware](https://github.com/ARPAHLS/skillware) by link (its instructions and rules; the Python code is not run) |
 | **Long-term memory** | One switch: the agent saves stable facts you tell it (name, role, preferences) and uses them in every later chat. See and delete each memory in the builder |
 | **Safety & limits** | PII redaction, prompt-injection blocking, max steps, tool calls and cost per run |
 
@@ -173,6 +174,12 @@ pnpm test          # API tests
 | `OPENAI_API_KEY` / `OPENAI_BASE_URL` | unset / OpenAI | Enables OpenAI (or another OpenAI-compatible API) |
 | `OPENROUTER_API_KEY` | unset | Enables any model on OpenRouter |
 | `OLLAMA_BASE_URL` | unset | A local OpenAI-compatible server, e.g. `http://host.docker.internal:11434/v1` |
+
+### 🎓 Skills
+
+Skills package *how to do a job* (a directive), *rules it must never break* (a constitution) and *the tools it needs*, so you equip an agent instead of rewriting its prompt. The idea and several skills are adapted from [Skillware](https://github.com/ARPAHLS/skillware) (MIT). Where safety matters the check is code, not a prompt: the website-permission verdict comes from parsing `robots.txt`, and the coach's crisis check is a deterministic English/Arabic matcher that runs before the model sees the message.
+
+<img src="screenshots/19-skills.png" alt="Skills in the builder" width="620" />
 
 ### 🕷️ Apify actors
 
