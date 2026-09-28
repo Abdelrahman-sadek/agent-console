@@ -21,6 +21,65 @@ export function registerProviderSettings(app: Hono, deps: { secrets: ProviderSec
   const known = (id: string) => isPreset(id) || (CUSTOM_ID.test(id) && secrets.all()[id] !== undefined);
   const presets = () => PRESETS.map((p) => ({ id: p.id, label: p.label, kind: p.kind, defaultBaseURL: p.defaultBaseURL ?? null, keyUrl: p.keyUrl ?? null, needsKey: p.needsKey }));
 
+  // ------------------------------------------------------------ integrations (Apify)
+  const apifyBase = (env.APIFY_BASE_URL ?? "https://api.apify.com").replace(/\/$/, "");
+  const apifyToken = () => secrets.all()["apify"]?.apiKey || env.APIFY_TOKEN || undefined;
+  const integrations = () => {
+    const saved = secrets.all()["apify"]?.apiKey;
+    const token = apifyToken();
+    return { apify: { configured: token !== undefined, source: saved ? "console" : env.APIFY_TOKEN ? "server" : null, keyHint: token ? `…${token.slice(-4)}` : null, keyUrl: "https://console.apify.com/settings/integrations" } };
+  };
+  app.get("/api/settings/integrations", (c) => c.json(integrations()));
+  app.put("/api/settings/integrations/apify", async (c) => {
+    const body = z.object({ apiKey: z.string().trim().min(8).max(500).regex(/^\S+$/, "no spaces") }).safeParse(await c.req.json().catch(() => ({})));
+    if (!body.success) return c.json({ error: "Paste your Apify API token." }, 400);
+    secrets.set("apify", { apiKey: body.data.apiKey });
+    reload();
+    log.info("settings", "Apify token saved");
+    return c.json(integrations());
+  });
+  app.delete("/api/settings/integrations/apify", (c) => {
+    secrets.remove("apify");
+    reload();
+    log.info("settings", "Apify token removed");
+    return c.json(integrations());
+  });
+  app.post("/api/settings/integrations/apify/test", async (c) => {
+    const token = apifyToken();
+    if (!token) return c.json({ ok: false, message: "Add your Apify token first." });
+    try {
+      const res = await fetch(`${apifyBase}/v2/users/me`, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(10_000) });
+      if (res.status === 401 || res.status === 403) { log.warn("provider", "Apify token test failed: rejected"); return c.json({ ok: false, message: "Apify rejected this token." }); }
+      if (!res.ok) return c.json({ ok: false, message: `Apify answered HTTP ${res.status}.` });
+      const me = ((await res.json()) as { data?: { username?: string; plan?: { id?: string } } }).data;
+      return c.json({ ok: true, message: `Connected as ${me?.username ?? "your account"}${me?.plan?.id ? ` (${me.plan.id} plan)` : ""}.` });
+    } catch {
+      return c.json({ ok: false, message: "Apify could not be reached." });
+    }
+  });
+  // Search the live Apify Store (public), so the builder can pick an actor by name.
+  app.get("/api/builder/apify/search", async (c) => {
+    const q = (c.req.query("q") ?? "").trim().slice(0, 100);
+    if (q.length < 2) return c.json({ actors: [] });
+    try {
+      const res = await fetch(`${apifyBase}/v2/store?search=${encodeURIComponent(q)}&limit=12`, { signal: AbortSignal.timeout(10_000) });
+      if (!res.ok) return c.json({ error: `Apify Store answered HTTP ${res.status}.` }, 502);
+      const items = ((await res.json()) as { data?: { items?: Record<string, any>[] } }).data?.items ?? [];
+      return c.json({
+        actors: items.map((a) => ({
+          id: `${a.username}/${a.name}`,
+          title: String(a.title ?? a.name).slice(0, 120),
+          description: String(a.description ?? "").slice(0, 300),
+          users: a.stats?.totalUsers ?? null,
+          pricing: a.currentPricingInfo?.pricingModel ?? null,
+          url: `https://apify.com/${a.username}/${a.name}`,
+        })),
+      });
+    } catch {
+      return c.json({ error: "The Apify Store could not be reached." }, 502);
+    }
+  });
+
   app.get("/api/settings/providers", (c) => c.json({ providers: live.providerInfo.filter((p) => p.id !== "demo"), presets: presets() }));
 
   // Add a custom OpenAI-compatible provider.

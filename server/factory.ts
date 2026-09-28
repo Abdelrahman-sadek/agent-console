@@ -2,7 +2,7 @@ import { createRuntime, defineAgent, type Agent, type AgentRuntime, type Guardra
 import { createKnowledgeBase, hashingEmbedder, type KnowledgeBase } from "@agent-farmework/knowledge";
 import { piiGuardrail, promptInjectionGuardrail } from "@agent-farmework/security";
 import { ToolRuntime } from "@agent-farmework/tools";
-import { buildTools } from "./catalog.js";
+import { buildTools, type ApifyAccess } from "./catalog.js";
 import { conversationProvider } from "./conversation.js";
 import type { Database } from "./db.js";
 import type { AgentSpec } from "./spec.js";
@@ -22,7 +22,7 @@ export class AgentFactory {
   private readonly refunds = new Map<string, string>();
 
   /** `timeoutMs` stops a run that hangs (e.g. a provider that never answers). */
-  constructor(private readonly db: Database, readonly providerIds: ReadonlySet<string>, providers: LLMProvider[], private readonly timeoutMs = 120_000) {
+  constructor(private readonly db: Database, readonly providerIds: ReadonlySet<string>, providers: LLMProvider[], private readonly timeoutMs = 120_000, private readonly apify: ApifyAccess = { baseURL: "https://api.apify.com" }) {
     this.runtime = createRuntime({ providers, tools: new ToolRuntime({ audit: db.audit }), stateStore: db.runs, events: db.events });
   }
 
@@ -66,7 +66,7 @@ export class AgentFactory {
     const guardrails: Guardrail[] = [];
     if (spec.guardrails.pii) guardrails.push(piiGuardrail());
     if (spec.guardrails.injection) guardrails.push(promptInjectionGuardrail());
-    const tools = buildTools(spec.tools, kb, this.refunds);
+    const tools = buildTools(spec.tools, kb, this.refunds, this.apify);
 
     const agent = defineAgent({
       name: AgentFactory.runtimeId(agentId, ref),

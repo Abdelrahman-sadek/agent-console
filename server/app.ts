@@ -32,6 +32,8 @@ export interface AppOptions {
 export interface LiveProviders {
   factory: AgentFactory;
   providerInfo: ProviderInfo[];
+  /** Whether an Apify token is available (Settings or APIFY_TOKEN). */
+  apifyConfigured: boolean;
 }
 
 const SESSION_COOKIE = "ac_session";
@@ -105,8 +107,11 @@ export async function createApp(options: AppOptions) {
   const log = options.log ?? new IssueLog();
   const secrets = new ProviderSecrets(db.db, options.masterKey ?? loadMasterKey(":memory:", {}));
   const build = (): LiveProviders => {
-    const { providers, info } = loadProviders(env, secrets.all());
-    return { factory: new AgentFactory(db, new Set(providers.map((p) => p.id)), providers, Number(env.RUN_TIMEOUT_MS ?? 120_000)), providerInfo: info };
+    const saved = secrets.all();
+    const { providers, info } = loadProviders(env, saved);
+    const apifyToken = saved["apify"]?.apiKey || env.APIFY_TOKEN || undefined;
+    const apify = { baseURL: env.APIFY_BASE_URL ?? "https://api.apify.com", ...(apifyToken ? { token: apifyToken } : {}) };
+    return { factory: new AgentFactory(db, new Set(providers.map((p) => p.id)), providers, Number(env.RUN_TIMEOUT_MS ?? 120_000), apify), providerInfo: info, apifyConfigured: apifyToken !== undefined };
   };
   const live: LiveProviders = build();
   const reload = () => Object.assign(live, build());

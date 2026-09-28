@@ -7,6 +7,7 @@ import type { ApprovalSpec, ToolSpec } from "./spec.js";
 /** What the builder UI offers. Every tool the model can use comes from here. */
 export const CATALOG = [
   { type: "http", label: "Web API call", description: "Call one HTTPS API you allow (only that host is reachable; private addresses are blocked).", configurable: true },
+  { type: "apify_actor", label: "Apify actor", description: "Run a ready-made Apify tool (scrapers, search, data extraction). Needs an Apify token in Settings; asks for approval by default.", configurable: true },
   { type: "knowledge_search", label: "Search knowledge", description: "Search this agent's uploaded documents and cite them.", configurable: false },
   { type: "calculator", label: "Calculator", description: "Exact arithmetic: + − × ÷ % ^ and parentheses.", configurable: false },
   { type: "current_time", label: "Current date & time", description: "Today's date and time (UTC and Cairo).", configurable: false },
@@ -86,11 +87,51 @@ function httpTool(t: Extract<ToolSpec, { type: "http" }>): AnyTool {
   }) as AnyTool;
 }
 
-export function buildTools(specs: readonly ToolSpec[], kb: KnowledgeBase | undefined, refunds: Map<string, string>): AnyTool[] {
+/** Where Apify actors are run, and with which token (from Settings or APIFY_TOKEN). */
+export interface ApifyAccess { token?: string; baseURL: string }
+
+/** Fill {{param}} placeholders with JSON-escaped values, so the model can never break the JSON. */
+export function fillApifyInput(template: string, args: Record<string, string>): unknown {
+  return JSON.parse(template.replace(/\{\{([a-zA-Z][a-zA-Z0-9_]*)\}\}/g, (_m, p: string) => JSON.stringify(args[p] ?? "").slice(1, -1)));
+}
+
+function apifyTool(t: Extract<ToolSpec, { type: "apify_actor" }>, apify: ApifyAccess): AnyTool {
+  const approval = approvalOf<Record<string, string>>(t.approval);
+  const actor = t.actorId.replace("/", "~");
+  return defineTool<Record<string, string>, unknown>({
+    name: t.name,
+    description: `${t.description} (Apify actor ${t.actorId})`,
+    input: z.object(Object.fromEntries(t.params.map((p) => [p, z.string().max(500)]))) as unknown as z.ZodType<Record<string, string>>,
+    ...(approval === undefined ? {} : { approval }),
+    execute: async (args) => {
+      if (!apify.token) throw new Error("No Apify token. Add one in Settings → Integrations.");
+      const url = `${apify.baseURL.replace(/\/$/, "")}/v2/acts/${encodeURIComponent(actor)}/run-sync-get-dataset-items?timeout=${t.timeoutSecs}&limit=${t.maxItems}&clean=true`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { authorization: `Bearer ${apify.token}`, "content-type": "application/json" },
+        body: JSON.stringify(fillApifyInput(t.input, args)),
+        signal: AbortSignal.timeout((t.timeoutSecs + 15) * 1_000),
+      });
+      if (res.status === 401 || res.status === 403) throw new Error("Apify rejected the token. Check it in Settings → Integrations.");
+      if (res.status === 402) throw new Error("Your Apify account has no credit left for this actor.");
+      if (res.status === 404) throw new Error(`Apify actor ${t.actorId} was not found.`);
+      if (res.status === 408) throw new Error(`The actor did not finish within ${t.timeoutSecs} s.`);
+      if (!res.ok) throw new Error(`Apify answered HTTP ${res.status}: ${(await res.text()).slice(0, 300)}`);
+      const items = (await res.json().catch(() => [])) as unknown[];
+      const list = Array.isArray(items) ? items.slice(0, t.maxItems) : [];
+      const text = JSON.stringify(list);
+      return { actor: t.actorId, count: list.length, items: text.length > 6_000 ? `${text.slice(0, 6_000)}… (truncated)` : list };
+    },
+  }) as AnyTool;
+}
+
+export function buildTools(specs: readonly ToolSpec[], kb: KnowledgeBase | undefined, refunds: Map<string, string>, apify: ApifyAccess = { baseURL: "https://api.apify.com" }): AnyTool[] {
   return specs.map((t): AnyTool => {
     switch (t.type) {
       case "http":
         return httpTool(t);
+      case "apify_actor":
+        return apifyTool(t, apify);
       case "knowledge_search":
         if (kb === undefined) throw new Error("knowledge_search needs knowledge enabled");
         return kb.asTool({ name: "knowledge_search", description: "Search this agent's documents. Cite results as [n].", k: 4 }) as AnyTool;

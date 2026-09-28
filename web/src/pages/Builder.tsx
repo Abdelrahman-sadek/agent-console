@@ -1,6 +1,6 @@
 import { ArrowLeft, BookOpen, Brain, Check, FileUp, History, Loader2, Plus, Rocket, RotateCcw, ShieldCheck, Trash2, Wrench } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
-import { ApiError, api, del, post, put, upload, type AgentSpec, type Approval, type BuilderAgent, type CatalogItem, type Issue, type ProviderInfo, type ToolSpec } from "../api";
+import { ApiError, api, del, post, put, upload, type Integrations, type StoreActor, type AgentSpec, type Approval, type BuilderAgent, type CatalogItem, type Issue, type ProviderInfo, type ToolSpec } from "../api";
 import { Button, Card, ago, cx } from "../ui";
 import { Conversation } from "./Chat";
 
@@ -64,9 +64,9 @@ function ModelPicker({ value, models, placeholder, onChange }: { value: string; 
 // ------------------------------------------------------------------ tools
 
 function toolTitle(t: ToolSpec, catalog: CatalogItem[]) {
-  return t.type === "http" ? t.name || "Web API call" : (catalog.find((c) => c.type === t.type)?.label ?? t.type);
+  return t.type === "http" ? t.name || "Web API call" : t.type === "apify_actor" ? t.name || "Apify actor" : (catalog.find((c) => c.type === t.type)?.label ?? t.type);
 }
-const fieldsFor = (t: ToolSpec) => (t.type === "http" ? t.params : t.type === "demo_refund" ? ["amount"] : []);
+const fieldsFor = (t: ToolSpec) => (t.type === "http" || t.type === "apify_actor" ? t.params : t.type === "demo_refund" ? ["amount"] : []);
 
 function ApprovalEditor({ tool, onChange, err }: { tool: ToolSpec; onChange: (a: Approval) => void; err: (p: string) => string | undefined }) {
   const fields = fieldsFor(tool);
@@ -136,12 +136,76 @@ function ToolCard({ tool, index, catalog, onChange, onRemove, err }: { tool: Too
           </div>
         </div>
       )}
+      {tool.type === "apify_actor" && <ApifyFields tool={tool} index={index} onChange={onChange} e={e} />}
       <div className="mt-3 border-t border-line pt-3"><ApprovalEditor tool={tool} err={e} onChange={(approval) => onChange({ ...tool, approval })} /></div>
     </div>
   );
 }
 
+function ApifyFields({ tool, index, onChange, e }: { tool: Extract<ToolSpec, { type: "apify_actor" }>; index: number; onChange: (t: ToolSpec) => void; e: (p: string) => string | undefined }) {
+  const [q, setQ] = useState("");
+  const [found, setFound] = useState<StoreActor[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const search = async () => {
+    setBusy(true); setError(null);
+    try { setFound((await api<{ actors: StoreActor[] }>(`/api/builder/apify/search?q=${encodeURIComponent(q)}`)).actors); } catch (err) { setError(err instanceof Error ? err.message : "Search failed."); } finally { setBusy(false); }
+  };
+  const id = (f: string) => `t${index}-${f}`;
+  return (
+    <div className="mt-4 grid gap-3 sm:grid-cols-2">
+      <div className="space-y-2 sm:col-span-2">
+        <label htmlFor={id("find")} className="block text-sm font-medium">Find an actor in the Apify Store</label>
+        <div className="flex gap-2">
+          <input id={id("find")} className={inputCls} value={q} placeholder="e.g. google search, instagram, website content" onChange={(ev) => setQ(ev.target.value)} onKeyDown={(ev) => { if (ev.key === "Enter") { ev.preventDefault(); void search(); } }} />
+          <Button variant="ghost" disabled={busy || q.trim().length < 2} onClick={() => void search()}>{busy ? <Loader2 size={15} className="animate-spin" /> : null}Search</Button>
+        </div>
+        {error && <p className="text-xs text-rose-600 dark:text-rose-300">{error}</p>}
+        {found && (
+          <ul className="max-h-64 divide-y divide-line overflow-y-auto rounded-xl border border-line scroll-thin">
+            {found.length === 0 && <li className="px-3 py-2 text-sm text-muted">No actors found.</li>}
+            {found.map((a) => (
+              <li key={a.id}>
+                <button type="button" onClick={() => { onChange({ ...tool, actorId: a.id, name: tool.name || a.id.split("/")[1]!.replace(/[^a-z0-9]+/gi, "_").toLowerCase().replace(/^[^a-z]+/, "").slice(0, 40) || "apify_actor", description: tool.description || a.title }); setFound(null); }}
+                  className={cx("w-full px-3 py-2 text-left hover:bg-panel-2", tool.actorId === a.id && "bg-brand/5")}>
+                  <span className="block text-sm font-medium">{a.title} <span className="font-mono text-xs font-normal text-muted">{a.id}</span></span>
+                  <span className="line-clamp-2 block text-xs text-muted">{a.description}</span>
+                  <span className="block text-[11px] text-muted">{a.users ? `${a.users.toLocaleString()} users` : ""}{a.pricing ? ` · ${a.pricing.toLowerCase().replace(/_/g, " ")}` : ""}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <Field label="Actor" id={id("actor")} error={e("actorId")} hint={tool.actorId ? <a href={`https://apify.com/${tool.actorId.replace("~", "/")}`} target="_blank" rel="noreferrer" className="text-brand hover:underline">Open its page (input fields & price) ↗</a> : "username/actor-name"}>
+        <input id={id("actor")} className={cx(inputCls, "font-mono")} value={tool.actorId} placeholder="apify/rag-web-browser" onChange={(ev) => onChange({ ...tool, actorId: ev.target.value })} />
+      </Field>
+      <Field label="Tool name" id={id("name")} error={e("name")} hint="What the model calls it, e.g. web_search">
+        <input id={id("name")} className={inputCls} value={tool.name} onChange={(ev) => onChange({ ...tool, name: ev.target.value })} />
+      </Field>
+      <div className="sm:col-span-2">
+        <Field label="What it does" id={id("desc")} error={e("description")} hint="The model reads this to decide when to use it.">
+          <input id={id("desc")} className={inputCls} value={tool.description} onChange={(ev) => onChange({ ...tool, description: ev.target.value })} />
+        </Field>
+      </div>
+      <div className="sm:col-span-2">
+        <Field label="Actor input (JSON)" id={id("input")} error={e("input")} hint={<>Put what the model fills in as <code>{"{{name}}"}</code> inside quotes, e.g. <code>{'{"query": "{{query}}", "maxResults": 3}'}</code>.</>}>
+          <textarea id={id("input")} className={cx(inputCls, "min-h-24 font-mono text-xs")} value={tool.input} onChange={(ev) => onChange({ ...tool, input: ev.target.value })} />
+        </Field>
+      </div>
+      <Field label="Inputs the model fills in" id={id("params")} error={e("params")} hint="Comma separated, e.g. query">
+        <input id={id("params")} className={cx(inputCls, "font-mono")} value={tool.params.join(", ")} onChange={(ev) => onChange({ ...tool, params: ev.target.value.split(",").map((x) => x.trim()).filter(Boolean) })} />
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Max results" id={id("max")}><input id={id("max")} type="number" min={1} max={100} className={inputCls} value={tool.maxItems} onChange={(ev) => onChange({ ...tool, maxItems: num(ev.target.value, 10) })} /></Field>
+        <Field label="Timeout (s)" id={id("to")}><input id={id("to")} type="number" min={10} max={110} className={inputCls} value={tool.timeoutSecs} onChange={(ev) => onChange({ ...tool, timeoutSecs: num(ev.target.value, 60) })} /></Field>
+      </div>
+    </div>
+  );
+}
+
 function newTool(type: ToolSpec["type"]): ToolSpec {
+  if (type === "apify_actor") return { type, name: "", description: "", actorId: "", input: '{"query": "{{query}}"}', params: ["query"], maxItems: 10, timeoutSecs: 60, approval: { mode: "always" } };
   if (type === "http") return { type, name: "", description: "", method: "GET", url: "https://", params: [], approval: { mode: "never" } };
   if (type === "demo_refund") return { type, approval: { mode: "threshold", field: "amount", over: 100 } };
   return { type, approval: { mode: "never" } };
@@ -228,6 +292,8 @@ export function BuilderPage({ id, onPublished }: { id: string; onPublished: () =
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [testKey, setTestKey] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [apifyReady, setApifyReady] = useState<boolean | null>(null);
+  useEffect(() => { api<Integrations>("/api/settings/integrations").then((i) => setApifyReady(i.apify.configured)).catch(() => {}); }, []);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
@@ -355,6 +421,9 @@ export function BuilderPage({ id, onPublished }: { id: string; onPublished: () =
 
           <Section icon={<Wrench size={18} />} title="Tools" subtitle="What the agent can do. It can use nothing else. Add approval rules for anything risky.">
             {err("tools") && <p className="text-sm text-rose-600 dark:text-rose-300">{err("tools")}</p>}
+            {apifyReady === false && spec.tools.some((t) => t.type === "apify_actor") && (
+              <p className="rounded-xl bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">Apify actors need your Apify token. <a href="#/settings" className="font-medium underline">Add it in Settings → Integrations</a>.</p>
+            )}
             {spec.tools.map((t, i) => t.type === "knowledge_search" ? null : (
               <ToolCard key={i} tool={t} index={i} catalog={catalog} err={err}
                 onChange={(nt) => set({ ...spec, tools: spec.tools.map((x, j) => (j === i ? nt : x)) })}

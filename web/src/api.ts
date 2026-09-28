@@ -112,6 +112,7 @@ export async function upload<T>(path: string, form: FormData): Promise<T> {
 export type Approval = { mode: "never" } | { mode: "always" } | { mode: "threshold"; field: string; over: number };
 export type ToolSpec =
   | { type: "http"; name: string; description: string; method: "GET" | "POST"; url: string; params: string[]; approval: Approval }
+  | { type: "apify_actor"; name: string; description: string; actorId: string; input: string; params: string[]; maxItems: number; timeoutSecs: number; approval: Approval }
   | { type: "knowledge_search" | "calculator" | "current_time" | "demo_lookup_order" | "demo_refund"; approval: Approval };
 
 export interface AgentSpec {
@@ -208,3 +209,6 @@ export function followRun(runId: string, onEvent: (e: AgentEvent) => void, onSta
 }
 
 export interface LogIssue { time: string; level: "error" | "warn" | "info"; source: string; message: string; detail?: Record<string, unknown> }
+
+export interface Integrations { apify: { configured: boolean; source: "console" | "server" | null; keyHint: string | null; keyUrl: string } }
+export interface StoreActor { id: string; title: string; description: string; users: number | null; pricing: string | null; url: string }

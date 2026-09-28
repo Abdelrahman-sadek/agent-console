@@ -101,6 +101,7 @@ export function registerBuilder(app: Hono, deps: { db: Database; live: LiveProvi
     const row = load(c.req.param("id"));
     if (row === undefined) return c.json({ error: "Agent not found." }, 404);
     const note = z.object({ note: z.string().max(200).default("") }).parse(await c.req.json().catch(() => ({}))).note;
+    if (row.draft.tools.some((t) => t.type === "apify_actor") && !live.apifyConfigured) return c.json({ error: "This agent uses an Apify actor. Add your Apify token in Settings → Integrations first." }, 400);
     if (!isConfigured(row.draft.model.providerId)) return c.json({ error: `The model provider "${row.draft.model.providerId}" is not configured. Add it in Settings.` }, 400);
     try {
       await live.factory.build(row.id, "draft"); // catches anything that would fail at run time

@@ -23,6 +23,20 @@ export const ToolSpec = z.discriminatedUnion("type", [
     params: z.array(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,40}$/)).max(8).default([]),
     approval,
   }),
+  z.object({
+    type: z.literal("apify_actor"),
+    name: toolName,
+    description: z.string().min(3).max(300),
+    /** Apify Store actor, e.g. "apify/rag-web-browser" (or "apify~rag-web-browser"). */
+    actorId: z.string().trim().regex(/^[\w.-]+[/~][\w.-]+$/, "use the form username/actor-name"),
+    /** Actor input as JSON; {{param}} inside a string is replaced by what the model provides. */
+    input: z.string().max(4_000).default("{}"),
+    params: z.array(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,40}$/)).max(8).default([]),
+    maxItems: z.number().int().min(1).max(100).default(10),
+    timeoutSecs: z.number().int().min(10).max(110).default(60),
+    // Actor runs can cost money on the user's Apify account: ask by default.
+    approval: ApprovalSpec.default({ mode: "always" }),
+  }),
   z.object({ type: z.literal("knowledge_search"), approval }),
   z.object({ type: z.literal("calculator"), approval }),
   z.object({ type: z.literal("current_time"), approval }),
@@ -54,6 +68,17 @@ export const AgentSpec = z
     const dup = names.find((n, i) => names.indexOf(n) !== i);
     if (dup) ctx.addIssue({ code: "custom", path: ["tools"], message: `two tools are named "${dup}"` });
     for (const [i, t] of spec.tools.entries()) {
+      if (t.type === "apify_actor") {
+        const used = [...t.input.matchAll(/\{\{([a-zA-Z][a-zA-Z0-9_]*)\}\}/g)].map((m) => m[1] as string);
+        const missing = used.filter((p) => !t.params.includes(p));
+        if (missing.length) ctx.addIssue({ code: "custom", path: ["tools", i, "params"], message: `add parameter(s): ${missing.join(", ")}` });
+        try {
+          const parsed = JSON.parse(t.input.replace(/\{\{[a-zA-Z][a-zA-Z0-9_]*\}\}/g, "x")) as unknown;
+          if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("not an object");
+        } catch {
+          ctx.addIssue({ code: "custom", path: ["tools", i, "input"], message: 'must be a JSON object, e.g. {"query": "{{query}}"}' });
+        }
+      }
       if (t.type === "http") {
         const placeholders = [...t.url.matchAll(/\{([a-zA-Z][a-zA-Z0-9_]*)\}/g)].map((m) => m[1]);
         const missing = placeholders.filter((p) => !t.params.includes(p as string));
@@ -71,7 +96,8 @@ export type AgentSpec = z.infer<typeof AgentSpec>;
 
 export function toolNameOf(t: ToolSpec): string {
   switch (t.type) {
-    case "http": return t.name;
+    case "http":
+    case "apify_actor": return t.name;
     case "demo_lookup_order": return "lookup_order";
     case "demo_refund": return "issue_refund";
     default: return t.type;
@@ -80,7 +106,7 @@ export function toolNameOf(t: ToolSpec): string {
 
 /** Inputs a threshold approval rule can look at. */
 export function thresholdFields(t: ToolSpec): string[] {
-  if (t.type === "http") return t.params;
+  if (t.type === "http" || t.type === "apify_actor") return t.params;
   if (t.type === "demo_refund") return ["amount"];
   return [];
 }

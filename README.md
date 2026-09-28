@@ -12,7 +12,7 @@ A web console for **[agents-framework](https://github.com/agent-farmework/agents
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white)
 ![React](https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=black)
 ![Tailwind](https://img.shields.io/badge/Tailwind-4-06b6d4?logo=tailwindcss&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-19%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-28%20passing-brightgreen)
 
 [**Quick start**](#-quick-start) · [**Features**](#-features) · [**Build an agent**](#-build-your-own-agent) · [**Screenshots**](#-screenshots) · [**How it works**](#-how-it-works) · [**FAQ**](#-faq)
 
@@ -83,7 +83,7 @@ No code needed. Click **New agent**, fill in the form, try it in the test chat, 
 | --- | --- |
 | **Basics** | Name, description, instructions, example questions |
 | **Model** | Claude, OpenAI, OpenRouter, Gemini, Groq, Mistral, DeepSeek, xAI, Together, Ollama, **any OpenAI-compatible server**, or the offline Demo model |
-| **Tools** | Web API call (HTTPS, only its own host, private addresses blocked), knowledge search, calculator, date & time, demo order tools |
+| **Tools** | Web API call (HTTPS, only its own host, private addresses blocked), **Apify actors** (thousands of ready-made scrapers and search tools, picked from the live Apify Store), knowledge search, calculator, date & time, demo order tools |
 | **Approval rules** | Per tool: never, always, or **only when a value is over a limit** (e.g. `amount over 100`) |
 | **Knowledge** | Upload PDF, TXT, Markdown, HTML, CSV or JSON, or paste text. Answers cite them |
 | **Safety & limits** | PII redaction, prompt-injection blocking, max steps, tool calls and cost per run |
@@ -170,6 +170,12 @@ pnpm test          # API tests
 | `OPENAI_API_KEY` / `OPENAI_BASE_URL` | unset / OpenAI | Enables OpenAI (or another OpenAI-compatible API) |
 | `OPENROUTER_API_KEY` | unset | Enables any model on OpenRouter |
 | `OLLAMA_BASE_URL` | unset | A local OpenAI-compatible server, e.g. `http://host.docker.internal:11434/v1` |
+
+### 🕷️ Apify actors
+
+Add your Apify token under **Settings → Integrations**, then add the **Apify actor** tool in the builder: search the Apify Store, pick an actor (for example `apify/rag-web-browser` for web search), and write its input as JSON with `{{placeholders}}` the model fills in (values are JSON-escaped, so the model cannot change other fields). Runs call only `api.apify.com` with your token, are capped by *max results* and *timeout*, and **ask for approval by default** because actor runs are billed to your Apify account.
+
+<img src="screenshots/17-apify-tool.png" alt="Apify actor tool in the builder" width="620" />
 
 ### 🔑 Connect providers from the browser
 

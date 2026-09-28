@@ -1,6 +1,6 @@
 import { CheckCircle2, ChevronDown, ExternalLink, KeyRound, Loader2, Plug, Plus, Server, Trash2, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
-import { api, del, post, put, type ProviderInfo } from "../api";
+import { api, del, post, put, type Integrations, type ProviderInfo } from "../api";
 import { Button, Card, cx } from "../ui";
 
 const inputCls = "w-full rounded-xl border border-line bg-bg px-3 py-2 text-sm outline-none focus:border-brand focus:ring-2 focus:ring-brand/20";
@@ -137,6 +137,56 @@ function AddCustom({ onAdded }: { onAdded: (list: ProviderInfo[]) => void }) {
   );
 }
 
+/** Apify: thousands of ready-made scrapers and tools the builder's "Apify actor" tool can run. */
+function ApifyCard() {
+  const [info, setInfo] = useState<Integrations["apify"] | null>(null);
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<Result>(null);
+  useEffect(() => { api<Integrations>("/api/settings/integrations").then((i) => setInfo(i.apify)).catch(() => {}); }, []);
+  const act = async (kind: "save" | "test" | "remove") => {
+    setBusy(true); setResult(null);
+    try {
+      if (kind === "save") { setInfo((await put<Integrations>("/api/settings/integrations/apify", { apiKey: key.trim() })).apify); setKey(""); }
+      if (kind === "remove") { if (!window.confirm("Forget the Apify token? Agents with Apify actors stop working until you add one.")) return; setInfo((await del<Integrations>("/api/settings/integrations/apify")).apify); return; }
+      setResult(await post<{ ok: boolean; message: string }>("/api/settings/integrations/apify/test", {}));
+    } catch (e) {
+      setResult({ ok: false, message: e instanceof Error ? e.message : "Failed." });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section>
+      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted">Integrations</h2>
+      <Card className="space-y-3 p-5">
+        <div className="flex items-start gap-3">
+          <span className={cx("grid h-9 w-9 shrink-0 place-items-center rounded-xl", info?.configured ? "bg-brand/10 text-brand" : "bg-panel-2 text-muted")}><Plug size={17} /></span>
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">Apify</p>
+            <p className="text-sm text-muted">Lets agents run ready-made Apify actors: web search, website content, social media and map scrapers, and thousands more. Add them in the builder under Tools → Apify actor. Runs are billed to your Apify account (there is a free monthly credit).</p>
+          </div>
+          {info && (info.configured
+            ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/12 px-2 py-0.5 text-xs text-emerald-700 dark:text-emerald-300"><CheckCircle2 size={12} />Connected · token {info.keyHint}</span>
+            : <span className="rounded-full bg-panel-2 px-2 py-0.5 text-xs text-muted">Not connected</span>)}
+        </div>
+        <div className="space-y-1.5">
+          <label htmlFor="apify-key" className="flex items-center justify-between text-sm font-medium">API token
+            <a href="https://console.apify.com/settings/integrations" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-normal text-brand hover:underline">Get your token <ExternalLink size={11} /></a>
+          </label>
+          <input id="apify-key" type="password" autoComplete="off" spellCheck={false} className={cx(inputCls, "font-mono")} value={key} onChange={(e) => setKey(e.target.value)} placeholder={info?.keyHint ? `Saved (${info.keyHint}). Paste a new token to replace it` : "apify_api_…"} />
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button onClick={() => void act("save")} disabled={busy || key.trim().length < 8}>{busy ? <Loader2 size={15} className="animate-spin" /> : <KeyRound size={15} />}Save & test</Button>
+          {info?.configured && <Button variant="ghost" onClick={() => void act("test")} disabled={busy}>Test</Button>}
+          {info?.source === "console" && <Button variant="danger" onClick={() => void act("remove")} disabled={busy}><Trash2 size={15} />Forget token</Button>}
+        </div>
+        {result && <p role="status" className={cx("inline-flex items-center gap-1.5 text-sm", result.ok ? "text-emerald-700 dark:text-emerald-300" : "text-rose-600 dark:text-rose-300")}>{result.ok ? <CheckCircle2 size={15} /> : <XCircle size={15} />}{result.message}</p>}
+      </Card>
+    </section>
+  );
+}
+
 export function SettingsPage({ onChange }: { onChange: () => void }) {
   const [providers, setProviders] = useState<ProviderInfo[] | null>(null);
   useEffect(() => { api<{ providers: ProviderInfo[] }>("/api/settings/providers").then((r) => setProviders(r.providers)).catch(() => setProviders([])); }, []);
@@ -163,6 +213,7 @@ export function SettingsPage({ onChange }: { onChange: () => void }) {
             </ul>
           </Card>
           <AddCustom onAdded={update} />
+          <ApifyCard />
           <p className="text-xs text-muted">Tip: OpenRouter gives one key for Claude, GPT, Gemini, Llama and more, including some free models.</p>
         </div>
       )}
